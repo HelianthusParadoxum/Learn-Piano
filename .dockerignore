@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+.git
+web/public/piano
+tests
+samples
+*.log

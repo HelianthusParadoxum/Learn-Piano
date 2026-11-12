@@ -1,0 +1,6 @@
+node_modules/
+dist/
+web/public/piano/
+data/
+*.log
+.DS_Store

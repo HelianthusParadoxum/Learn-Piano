@@ -1,0 +1,34 @@
+{
+  "name": "learn-piano",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Веб-приложение для разучивания пьес на фортепиано по PDF с нотами: блоки, аппликатура, воспроизведение",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/copy-samples.mjs && vite",
+    "build": "node scripts/copy-samples.mjs && tsc --noEmit -p tsconfig.json && vite build",
+    "start": "node server/server.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "dependencies": {
+    "@audio-samples/piano-mp3-velocity8": "^1.0.5",
+    "fflate": "^0.8.3",
+    "opensheetmusicdisplay": "^2.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "jsdom": "^31.0.0",
+    "typescript": "5.9",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}

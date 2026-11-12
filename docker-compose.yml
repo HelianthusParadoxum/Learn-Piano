@@ -1,0 +1,17 @@
+services:
+  learn-piano:
+    build: .
+    image: learn-piano:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - piano-data:/data
+    environment:
+      # one recognition at a time needs ~2–3 GB RAM; raise if you have more memory
+      OMR_CONCURRENCY: "1"
+      OMR_TIMEOUT_SEC: "900"
+      MAX_UPLOAD_MB: "40"
+    restart: unless-stopped
+
+volumes:
+  piano-data:
