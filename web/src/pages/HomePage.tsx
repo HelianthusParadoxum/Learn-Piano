@@ -339,7 +339,10 @@ const STAGE_RU: Record<string, string> = {
 
 function JobProgress({ job, elapsed }: { job: JobView; elapsed: number }) {
   const st = job.status;
-  const pct = job.phase === 'upload' ? 3 : job.phase === 'import' ? 98 : Math.max(5, Math.round((st?.progress ?? 0) * 100));
+  // the server reports Audiveris steps; if its log is terse, keep the bar moving with a time-based estimate
+  const timeBased = st?.status === 'running' ? 0.9 * (1 - Math.exp(-elapsed / 50)) : 0;
+  const pct =
+    job.phase === 'upload' ? 3 : job.phase === 'import' ? 98 : Math.max(5, Math.round(Math.max(st?.progress ?? 0, timeBased) * 100));
   const stageKey = job.phase === 'import' ? 'import' : job.phase === 'upload' ? 'upload' : st?.status === 'queued' ? 'queued' : st?.stage ?? '';
   const stage = STAGE_RU[stageKey] ?? stageKey;
   return (
