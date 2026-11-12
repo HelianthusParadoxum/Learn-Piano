@@ -62,6 +62,12 @@ button {
 .muted {
   color: var(--muted);
 }
+.t-R {
+  color: var(--R);
+}
+.t-L {
+  color: var(--L);
+}
 .small {
   font-size: 12.5px;
 }
@@ -833,20 +839,18 @@ button.badge {
   stroke: #7c3aed !important;
   filter: drop-shadow(0 0 2px rgba(124, 58, 237, 0.7));
 }
-.score-view.fragment {
-  padding-top: 22px;
+.score-host .osmd-measure-number text {
+  fill: #94a3b8;
+  font-style: italic;
 }
-.measure-label {
-  position: absolute;
-  top: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  background: #f1f5f9;
-  border-radius: 6px;
-  padding: 0 6px;
-  pointer-events: none;
-  white-space: nowrap;
+.score-host .osmd-fingering text {
+  font-weight: 700;
+}
+.score-host .lp-staff-R .osmd-fingering text {
+  fill: #1d4ed8;
+}
+.score-host .lp-staff-L .osmd-fingering text {
+  fill: #c2410c;
 }
 .block-overlay {
   position: absolute;
@@ -1004,6 +1008,14 @@ button.badge {
 }
 .piano-roll canvas {
   display: block;
+}
+.kb-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+}
+.kb-inner {
+  width: 100%;
 }
 .keyboard {
   display: block;

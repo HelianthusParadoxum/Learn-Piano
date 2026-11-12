@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsDialog } from '../components/SettingsDialog';
+import { pianoEngine } from '../lib/audio';
 import { navigate, type Route } from '../lib/hooks';
 import type { Block, PieceSettings, Score } from '../lib/model';
 import { parseScore } from '../lib/musicxml';
@@ -14,6 +15,12 @@ export const blockKey = (b: Block) => `${b.startMeasure}-${b.endMeasure}`;
 export function PiecePage({ route }: { route: Route }) {
   const [rec, setRec] = useState<PieceRecord | null | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // start downloading the piano samples right away so that the first "play" is instant
+  useEffect(() => {
+    const t = setTimeout(() => void pianoEngine.load(), 300);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     let alive = true;

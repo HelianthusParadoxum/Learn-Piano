@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FingerPicker } from '../components/FingerPicker';
-import { Keyboard, rangeFor, type KeyMark } from '../components/Keyboard';
+import { Keyboard, keyCenter, rangeFor, whiteKeyCount, type KeyMark } from '../components/Keyboard';
 import { PianoRoll } from '../components/PianoRoll';
 import { BLOCK_COLORS, ScoreView } from '../components/ScoreView';
 import { handsFor, Transport, type HandSelection } from '../components/Transport';
@@ -138,8 +138,22 @@ function StepView(props: Props & { block: Block }) {
   }, [rangeNotes, hands.R, hands.L]); // eslint-disable-line react-hooks/exhaustive-deps
   const kbRange = useMemo(() => rangeFor(rangeNotes.map((n) => n.midi)), [rangeNotes]);
 
+  // on narrow screens the keyboard scrolls horizontally: keep the pressed keys in view
+  const kbScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = kbScrollRef.current;
+    if (!box || box.scrollWidth <= box.clientWidth + 2 || !active.length) return;
+    const count = whiteKeyCount(kbRange);
+    const xs = active.map((n) => (keyCenter(kbRange, n.midi) / count) * box.scrollWidth);
+    const lo = Math.min(...xs);
+    const hi = Math.max(...xs);
+    if (lo < box.scrollLeft + 20 || hi > box.scrollLeft + box.clientWidth - 20) {
+      box.scrollTo({ left: Math.max(0, (lo + hi) / 2 - box.clientWidth / 2), behavior: 'smooth' });
+    }
+  }, [active, kbRange]);
+
   const startPlayback = useCallback(
-    (startAt?: number) => {
+    (startAt?: number, restart = false) => {
       void player.play(score, {
         from,
         to,
@@ -148,7 +162,7 @@ function StepView(props: Props & { block: Block }) {
         tempoFactor: tempoPct / 100,
         loop,
         metronome,
-        countIn,
+        countIn: countIn && !restart,
       });
     },
     [score, from, to, cursor, hands.R, hands.L, tempoPct, loop, metronome, countIn], // eslint-disable-line react-hooks/exhaustive-deps
@@ -170,20 +184,23 @@ function StepView(props: Props & { block: Block }) {
 
   // apply changed options immediately while playing
   useEffect(() => {
-    if (player.getState().playing && isMine) startPlayback(player.getState().position ?? from);
+    if (player.getState().playing && isMine) startPlayback(player.getState().position ?? from, true);
   }, [tempoPct, hands.R, hands.L, metronome, loop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stepTo = useCallback(
     (dir: 1 | -1) => {
-      if (player.getState().playing) player.stop();
+      const st = player.getState();
+      // while playing, step from the note that is sounding now
+      const current = st.playing && st.from === from && st.to === to && st.position !== null ? st.position : cursor;
+      if (st.playing) player.stop();
       if (!onsets.length) return;
       let next: number;
-      if (cursor === null) next = dir === 1 ? onsets[0] : onsets[onsets.length - 1];
+      if (current === null) next = dir === 1 ? onsets[0] : onsets[onsets.length - 1];
       else {
-        const idx = onsets.findIndex((o) => o > cursor + 1e-6);
+        const idx = onsets.findIndex((o) => o > current + 1e-6);
         if (dir === 1) next = idx === -1 ? onsets[0] : onsets[idx];
         else {
-          const before = onsets.filter((o) => o < cursor - 1e-6);
+          const before = onsets.filter((o) => o < current - 1e-6);
           next = before.length ? before[before.length - 1] : onsets[onsets.length - 1];
         }
       }
@@ -191,7 +208,7 @@ function StepView(props: Props & { block: Block }) {
       const chord = rangeNotes.filter((n) => Math.abs(n.onset - next) < 1e-6 && hands[n.hand!] === 'on');
       void player.preview(chord.map((n) => ({ midi: n.midi, velocity: n.velocity })), 0.9);
     },
-    [onsets, cursor, rangeNotes, hands.R, hands.L], // eslint-disable-line react-hooks/exhaustive-deps
+    [onsets, cursor, rangeNotes, from, to, hands.R, hands.L], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // keyboard shortcuts
@@ -200,6 +217,7 @@ function StepView(props: Props & { block: Block }) {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.code === 'Space') {
+        if (t?.tagName === 'BUTTON') return; // the focused button handles Space itself
         e.preventDefault();
         if (player.getState().playing) stopPlayback();
         else startPlayback();
@@ -264,7 +282,7 @@ function StepView(props: Props & { block: Block }) {
         <div className="card-head">
           <span>Ноты блока с аппликатурой</span>
           <span className="muted small">
-            Цифры — номера пальцев (1 — большой … 5 — мизинец). Нажмите на ноту, чтобы поменять палец.
+            Цифры — пальцы: <b className="t-R">синие</b> — правая рука, <b className="t-L">оранжевые</b> — левая (1 — большой … 5 — мизинец). Нажмите на ноту, чтобы поменять палец.
             {userOverrides > 0 && ` Изменено вами: ${userOverrides}.`}
           </span>
         </div>
@@ -331,24 +349,28 @@ function StepView(props: Props & { block: Block }) {
             <span className="muted small"> · ◀ ▶ или стрелки — по одной ноте</span>
           </span>
         </div>
-        <PianoRoll
-          notes={rangeNotes}
-          range={kbRange}
-          position={pos}
-          windowQ={windowQ}
-          hands={hands}
-          measures={score.measures}
-          rangeEnd={to}
-          height={190}
-        />
-        <Keyboard
-          range={kbRange}
-          active={activeKeys}
-          marks={marks}
-          nameStyle={settings.noteNames}
-          preferFlats={(score.measures[block.startMeasure]?.fifths ?? 0) < 0}
-          onKeyClick={(midi) => void player.preview([{ midi }], 0.8)}
-        />
+        <div className="kb-scroll" ref={kbScrollRef}>
+          <div className="kb-inner" style={{ minWidth: whiteKeyCount(kbRange) * 22 }}>
+            <PianoRoll
+              notes={rangeNotes}
+              range={kbRange}
+              position={pos}
+              windowQ={windowQ}
+              hands={hands}
+              measures={score.measures}
+              rangeEnd={to}
+              height={190}
+            />
+            <Keyboard
+              range={kbRange}
+              active={activeKeys}
+              marks={marks}
+              nameStyle={settings.noteNames}
+              preferFlats={(score.measures[block.startMeasure]?.fifths ?? 0) < 0}
+              onKeyClick={(midi) => void player.preview([{ midi }], 0.8)}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="step-columns">

@@ -32,7 +32,8 @@ export function FullScoreView(props: {
   const [countIn, setCountIn] = usePersistentState('countIn', false);
   const [cursor, setCursor] = useState<number | null>(null);
 
-  const handSel: HandSelection = handSelPref === 'both' ? (hasR && hasL ? 'both' : hasR ? 'R' : 'L') : handSelPref;
+  const handSel: HandSelection =
+    handSelPref === 'both' ? (hasR && hasL ? 'both' : hasR ? 'R' : 'L') : handSelPref === 'R' ? (hasR ? 'R' : 'L') : hasL ? 'L' : 'R';
   const hands = handsFor(handSel, otherQuiet);
   const from = 0;
   const to = score.totalLength;
@@ -61,7 +62,7 @@ export function FullScoreView(props: {
   const currentBlock = currentMeasure !== null ? blockOfMeasure(blocks, currentMeasure)?.index : lastBlock;
 
   const startPlayback = useCallback(
-    (startAt?: number) => {
+    (startAt?: number, restart = false) => {
       void player.play(score, {
         from,
         to,
@@ -70,7 +71,7 @@ export function FullScoreView(props: {
         tempoFactor: tempoPct / 100,
         loop,
         metronome,
-        countIn,
+        countIn: countIn && !restart,
       });
     },
     [score, to, cursor, hands.R, hands.L, tempoPct, loop, metronome, countIn], // eslint-disable-line react-hooks/exhaustive-deps
@@ -86,7 +87,7 @@ export function FullScoreView(props: {
     if (!ps.playing && isMine && ps.position === null) setCursor(null);
   }, [ps.playing, ps.position, isMine]);
   useEffect(() => {
-    if (player.getState().playing && isMine) startPlayback(player.getState().position ?? from);
+    if (player.getState().playing && isMine) startPlayback(player.getState().position ?? from, true);
   }, [tempoPct, hands.R, hands.L, metronome, loop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -94,6 +95,7 @@ export function FullScoreView(props: {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
       if (e.code === 'Space') {
+        if (t?.tagName === 'BUTTON') return; // the focused button handles Space itself
         e.preventDefault();
         if (player.getState().playing) stopPlayback();
         else startPlayback();

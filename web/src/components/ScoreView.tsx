@@ -57,7 +57,6 @@ export function ScoreView(props: ScoreViewProps) {
   const highlighted = useRef(new Set<Element>());
   const measureBoxes = useRef(new Map<number, MeasureBox>());
   const [overlays, setOverlays] = useState<Overlay[]>([]);
-  const [measureLabels, setMeasureLabels] = useState<{ left: number; top: number; text: string }[]>([]);
   const [width, setWidth] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [layout, setLayout] = useState(0);
@@ -140,9 +139,11 @@ export function ScoreView(props: ScoreViewProps) {
         rules.MaxMeasureToDrawIndex = r1 ?? Number.MAX_VALUE;
         rules.MaxMeasureToDrawNumber = Number.MAX_VALUE;
         const fragment = r0 !== undefined;
-        // in fragments we draw our own measure numbers (OSMD's look exactly like fingering digits)
-        rules.RenderMeasureNumbers = !fragment;
-        rules.RenderMeasureNumbersOnlyAtSystemStart = true;
+        // measure numbers are styled grey/italic and fingerings coloured by hand (see styles.css),
+        // so the two kinds of digits cannot be confused
+        rules.RenderMeasureNumbers = true;
+        rules.MeasureNumberLabelHeight = 1.3;
+        rules.RenderMeasureNumbersOnlyAtSystemStart = !fragment;
         rules.StretchLastSystemLine = fragment;
         rules.CompactMode = !!compact;
         osmd.Zoom = zoom;
@@ -264,16 +265,14 @@ export function ScoreView(props: ScoreViewProps) {
     noteEls.current = notes;
     elToNote.current = back;
     measureBoxes.current = boxes;
-    if (r0 !== undefined) {
-      const labels: { left: number; top: number; text: string }[] = [];
-      for (const [idx, b] of boxes) {
-        if (idx < r0 || idx > (r1 ?? idx)) continue;
-        labels.push({ left: b.left, top: b.top, text: score.measures[idx]?.number ?? String(idx + 1) });
-      }
-      setMeasureLabels(labels);
-    } else {
-      setMeasureLabels([]);
-    }
+    // colour fingering digits by hand: tag every staff line group with the hand that plays it
+    const handByStaff = new Map(score.staves.map((st) => [st.staffIndex, st.hand]));
+    host.querySelectorAll('g.osmd-staffline').forEach((g) => {
+      const m = /osmd-staffline\d+-(\d+)/.exec(g.id);
+      if (!m) return;
+      const hand = handByStaff.get(Number(m[1]));
+      g.classList.add(hand ? `lp-staff-${hand}` : 'lp-staff-x');
+    });
     highlighted.current = new Set();
     computeOverlays();
   }
@@ -375,18 +374,13 @@ export function ScoreView(props: ScoreViewProps) {
   return (
     <div
       ref={wrapRef}
-      className={`score-view ${onNoteClick ? 'editable' : ''} ${range ? 'fragment' : ''}`}
+      className={`score-view ${onNoteClick ? 'editable' : ''}`}
       onClick={handleClick}
       style={maxWidth ? { maxWidth } : undefined}
     >
       {status === 'loading' && <div className="score-loading">Рисую ноты…</div>}
       {status === 'error' && <div className="score-error">Не удалось отрисовать ноты: {error}</div>}
       <div ref={hostRef} className="score-host" />
-      {measureLabels.map((l, i) => (
-        <span key={i} className="measure-label" style={{ left: l.left }} title={`Такт ${l.text}`}>
-          такт {l.text}
-        </span>
-      ))}
       {overlays.map((o, i) => {
         const color = BLOCK_COLORS[o.block % BLOCK_COLORS.length];
         const isCurrent = o.block === currentBlock;

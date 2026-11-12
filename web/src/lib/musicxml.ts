@@ -602,7 +602,10 @@ function extractTitle(root: Element): string {
     }
   }
   const candidates = [wt, mt, creditTitle].filter(
-    (t): t is string => !!t && !/^(untitled|unknown|title|без названия)$/i.test(t) && !/\.(pdf|xml|mxl|png|jpe?g)$/i.test(t),
+    (t): t is string =>
+      !!t &&
+      !/^(untitled|unknown|title|score|без названия)(\.mvt\d+)?$/i.test(t) &&
+      !/\.(pdf|xml|mxl|png|jpe?g|tiff?)$/i.test(t),
   );
   return candidates[0] || '';
 }

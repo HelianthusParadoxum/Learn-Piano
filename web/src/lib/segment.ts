@@ -76,19 +76,34 @@ export function measureBoundaries(score: Score): BoundaryInfo[] {
     const offset = i + 1 - sectionStart;
     if (offset % 4 === 0) s += 1;
     else if (offset % 2 === 0) s += 0.5;
+    // a pickup (anacrusis) always belongs to the following measure, even if a repeat sign follows it
     const forbidden = i === 0 && measures[0].implicit && M > 1;
+    if (forbidden) hard = false;
     info.push({ strength: s, hard, forbidden });
     if (hard) sectionStart = i + 1;
   }
   return info;
 }
 
-function medianNotesPerMeasure(score: Score): number {
+/** Median number of notes (both hands) per quarter note, over non-empty measures. */
+function medianNotesPerQuarter(score: Score): number {
   const counts = new Array(score.measures.length).fill(0);
   for (const n of score.notes) if (n.hand && !n.grace) counts[n.measureIndex]++;
-  const nonEmpty = counts.filter((c) => c > 0).sort((a, b) => a - b);
-  if (!nonEmpty.length) return 4;
-  return nonEmpty[Math.floor(nonEmpty.length / 2)];
+  const dens = counts
+    .map((c, i) => (c > 0 ? c / Math.max(0.5, score.measures[i].length) : 0))
+    .filter((d) => d > 0)
+    .sort((a, b) => a - b);
+  if (!dens.length) return 1;
+  return dens[Math.floor(dens.length / 2)];
+}
+
+/** Target block length in measures: about TARGET_NOTES notes, between 4 and 16 quarter notes. */
+function targetMeasures(score: Score): number {
+  const perQuarter = medianNotesPerQuarter(score);
+  const quarters = Math.min(16, Math.max(4, TARGET_NOTES / Math.max(perQuarter, 0.1)));
+  const lengths = score.measures.map((m) => m.nominalLength).sort((a, b) => a - b);
+  const typical = lengths[Math.floor(lengths.length / 2)] || 4;
+  return Math.min(8, Math.max(1, quarters / typical));
 }
 
 export function segmentBlocks(score: Score, mode: BlockSizeMode = 'auto'): Block[] {
@@ -130,8 +145,7 @@ function fixedRanges(bounds: BoundaryInfo[], size: number): [number, number][] {
 
 function autoRanges(score: Score, bounds: BoundaryInfo[]): [number, number][] {
   const M = bounds.length;
-  const density = medianNotesPerMeasure(score);
-  const target = Math.min(8, Math.max(1, TARGET_NOTES / Math.max(density, 1)));
+  const target = targetMeasures(score);
   const maxLen = Math.min(8, Math.max(2, Math.round(target * 2)));
   const best = new Array<number>(M + 1).fill(Infinity);
   const from = new Array<number>(M + 1).fill(-1);
@@ -157,16 +171,11 @@ function autoRanges(score: Score, bounds: BoundaryInfo[]): [number, number][] {
       }
     }
   }
+  if (!Number.isFinite(best[M])) return fixedRanges(bounds, Math.max(1, Math.round(target)));
   const out: [number, number][] = [];
   let j = M;
   while (j > 0) {
     const i = from[j];
-    if (i < 0) {
-      // should not happen; fall back to single measures
-      out.push([j - 1, j - 1]);
-      j--;
-      continue;
-    }
     out.push([i, j - 1]);
     j = i;
   }
