@@ -16,7 +16,7 @@ const pdf = readFileSync(join(ROOT, 'samples/pdf/ode-to-joy.pdf'));
 
 beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lp-test-'));
-  const map = { [createHash('sha256').update(pdf).digest('hex')]: join(ROOT, 'web/public/examples/ode-to-joy.musicxml') };
+  const map = { [createHash('sha256').update(pdf).digest('hex')]: join(ROOT, 'web/src/examples/ode-to-joy.musicxml') };
   writeFileSync(join(dir, 'map.json'), JSON.stringify(map));
   server = spawn(process.execPath, [join(ROOT, 'server/server.mjs')], {
     env: {

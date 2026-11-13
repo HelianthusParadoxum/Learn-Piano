@@ -12,8 +12,20 @@ export interface Route {
   step?: number;
 }
 
+/**
+ * Routes live in the URL hash as plain names (letters, digits, hyphens), so that they also work
+ * inside a Claude artifact page, where only "#name" hashes pass between the page and its link:
+ *   #home · #piece-<id>-step-<n> · #piece-<id>-score · #piece-<id>-original
+ */
 export function parseRoute(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const h = hash.replace(/^#/, '');
+  const m = /^piece-([a-z0-9-]+?)-(step-(\d+)|score|original)$/i.exec(h);
+  if (m) {
+    const tab: Route['tab'] = m[2] === 'score' ? 'score' : m[2] === 'original' ? 'pdf' : 'guide';
+    return { page: 'piece', pieceId: m[1], tab, step: m[3] ? Math.max(1, parseInt(m[3], 10) || 1) : undefined };
+  }
+  // links from the first version: #/piece/<id>/guide/3
+  const parts = h.replace(/^\//, '').split('/').filter(Boolean);
   if (parts[0] === 'piece' && parts[1]) {
     const tab = (parts[2] as Route['tab']) || 'guide';
     const step = parts[3] ? Math.max(1, parseInt(parts[3], 10) || 1) : undefined;
@@ -24,10 +36,11 @@ export function parseRoute(hash: string): Route {
 
 export function routeHash(r: Route): string {
   if (r.page === 'piece' && r.pieceId) {
-    const base = `#/piece/${encodeURIComponent(r.pieceId)}/${r.tab ?? 'guide'}`;
-    return r.tab === 'guide' || !r.tab ? `${base}/${r.step ?? 1}` : base;
+    if (r.tab === 'score') return `#piece-${r.pieceId}-score`;
+    if (r.tab === 'pdf') return `#piece-${r.pieceId}-original`;
+    return `#piece-${r.pieceId}-step-${r.step ?? 1}`;
   }
-  return '#/';
+  return '#home';
 }
 
 export function navigate(r: Route) {

@@ -68,14 +68,14 @@ export function PiecePage({ route }: { route: Route }) {
   if (rec === null) {
     return (
       <div className="page-msg">
-        Пьеса не найдена. <a href="#/">Вернуться к списку</a>
+        Пьеса не найдена. <a href="#home">Вернуться к списку</a>
       </div>
     );
   }
   if (parsed.error || !guide) {
     return (
       <div className="page-msg error">
-        Не удалось прочитать ноты: {parsed.error}. <a href="#/">Назад</a>
+        Не удалось прочитать ноты: {parsed.error}. <a href="#home">Назад</a>
       </div>
     );
   }
@@ -99,7 +99,7 @@ export function PiecePage({ route }: { route: Route }) {
     <div className="piece-page">
       <div className="piece-header">
         <div className="piece-header-main">
-          <a href="#/" className="back-link">← Мои пьесы</a>
+          <a href="#home" className="back-link">← Мои пьесы</a>
           <h1 className="piece-h1">{rec.title}</h1>
           <div className="piece-sub">
             {rec.composer && <span>{rec.composer}</span>}
@@ -127,6 +127,13 @@ export function PiecePage({ route }: { route: Route }) {
         </div>
       </div>
 
+      {rec.recognizer === 'claude' && (
+        <div className="alert info">
+          Ноты распознал Claude по изображению страниц. Сверьте их с оригиналом (вкладка «Оригинал»), особенно знаки
+          альтерации и ритм. Если нашли ошибку — исправьте MusicXML в MuseScore («Настройки» → экспорт) и загрузите заново.
+        </div>
+      )}
+
       <div className="tabs" role="tablist">
         <button
           role="tab"
@@ -142,19 +149,20 @@ export function PiecePage({ route }: { route: Route }) {
         >
           Вся пьеса
         </button>
-        {rec.pdf && (
+        {(rec.pdf || rec.pages?.length) && (
           <button
             role="tab"
             className={tab === 'pdf' ? 'active' : ''}
             onClick={() => navigate({ page: 'piece', pieceId: rec.id, tab: 'pdf' })}
           >
-            Оригинал ({rec.pdf.type.startsWith('image/') ? 'скан' : 'PDF'})
+            Оригинал
           </button>
         )}
       </div>
 
       {tab === 'guide' && (
         <GuideView
+          pieceId={rec.id}
           guide={guide}
           step={step}
           learned={learned}
@@ -180,7 +188,8 @@ export function PiecePage({ route }: { route: Route }) {
           }}
         />
       )}
-      {tab === 'pdf' && rec.pdf && <PdfView blob={rec.pdf} />}
+      {tab === 'pdf' && rec.pages?.length ? <PagesView pages={rec.pages} /> : null}
+      {tab === 'pdf' && !rec.pages?.length && rec.pdf && <PdfView blob={rec.pdf} />}
 
       {settingsOpen && (
         <SettingsDialog
@@ -192,6 +201,18 @@ export function PiecePage({ route }: { route: Route }) {
           onRename={(title) => update({ title })}
         />
       )}
+    </div>
+  );
+}
+
+function PagesView({ pages }: { pages: Blob[] }) {
+  const urls = useMemo(() => pages.map((p) => URL.createObjectURL(p)), [pages]);
+  useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
+  return (
+    <div className="pdf-view pages">
+      {urls.map((u, i) => (
+        <img key={u} src={u} alt={`Страница ${i + 1}`} />
+      ))}
     </div>
   );
 }

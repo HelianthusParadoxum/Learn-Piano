@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { PieceSettings } from '../lib/model';
 import type { Guide } from '../lib/piece';
+import { saveFile } from '../lib/platform';
 import type { PieceRecord } from '../lib/storage';
 
 export function SettingsDialog(props: {
@@ -22,13 +23,18 @@ export function SettingsDialog(props: {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const download = (content: string, name: string, type: string) => {
-    const url = URL.createObjectURL(new Blob([content], { type }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const [exportNote, setExportNote] = useState('');
+  const download = async (content: string, name: string, type: string) => {
+    setExportNote('');
+    const ok = await saveFile(name, content, type);
+    if (!ok) {
+      try {
+        await navigator.clipboard.writeText(content);
+        setExportNote('Скачивание недоступно — MusicXML скопирован в буфер обмена. Вставьте его в текстовый файл .musicxml.');
+      } catch {
+        setExportNote('Скачивание недоступно в этом окне.');
+      }
+    }
   };
   const safeName = (rec.title || 'score').replace(/[\\/:*?"<>|]+/g, '_');
 
@@ -102,13 +108,14 @@ export function SettingsDialog(props: {
         <div className="field">
           <span>Экспорт</span>
           <div className="row-actions">
-            <button className="btn outline small" onClick={() => download(guide.renderXml, `${safeName}.musicxml`, 'application/vnd.recordare.musicxml+xml')}>
+            <button className="btn outline small" onClick={() => void download(guide.renderXml, `${safeName}.musicxml`, 'application/vnd.recordare.musicxml+xml')}>
               MusicXML с аппликатурой
             </button>
-            <button className="btn outline small" onClick={() => download(rec.musicXml, `${safeName} (распознано).musicxml`, 'application/vnd.recordare.musicxml+xml')}>
+            <button className="btn outline small" onClick={() => void download(rec.musicXml, `${safeName} (распознано).musicxml`, 'application/vnd.recordare.musicxml+xml')}>
               Исходный MusicXML
             </button>
           </div>
+          {exportNote && <small className="export-note">{exportNote}</small>}
           <small className="muted">
             Если распознавание ошиблось, исправьте MusicXML в MuseScore и загрузите его снова — гайд пересоберётся.
           </small>

@@ -5,12 +5,13 @@ import { PianoRoll } from '../components/PianoRoll';
 import { BLOCK_COLORS, ScoreView } from '../components/ScoreView';
 import { handsFor, Transport, type HandSelection } from '../components/Transport';
 import { player } from '../lib/audio';
-import { usePersistentState, usePlayerState } from '../lib/hooks';
+import { routeHash, usePersistentState, usePlayerState } from '../lib/hooks';
 import { EPS, type Block, type Hand, type NoteEvent, type PieceSettings } from '../lib/model';
 import type { Guide } from '../lib/piece';
 import { quarterToSeconds } from '../lib/timing';
 
 interface Props {
+  pieceId: string;
   guide: Guide;
   step: number;
   learned: ReadonlySet<number>;
@@ -69,7 +70,7 @@ function fmtTime(sec: number) {
 }
 
 function StepView(props: Props & { block: Block }) {
-  const { guide, block, learned, settings, onStep, onToggleLearned, onOverride, overrides } = props;
+  const { pieceId, guide, block, learned, settings, onStep, onToggleLearned, onOverride, overrides } = props;
   const { score, blocks, analyses, renderXml } = guide;
   const analysis = analyses[block.index];
   const ps = usePlayerState();
@@ -428,7 +429,7 @@ function StepView(props: Props & { block: Block }) {
         <button className="btn outline" disabled={block.index === 0} onClick={() => onStep(block.index)}>
           ← Предыдущий блок
         </button>
-        <a className="btn ghost" href={`#/piece/${encodeURIComponent(location.hash.split('/')[2] ?? '')}/score`}>
+        <a className="btn ghost" href={routeHash({ page: 'piece', pieceId, tab: 'score' })}>
           Карта всей пьесы
         </a>
         <button className="btn primary" disabled={block.index === blocks.length - 1} onClick={() => onStep(block.index + 2)}>

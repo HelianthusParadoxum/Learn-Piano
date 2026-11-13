@@ -4,3 +4,5 @@ web/public/piano/
 data/
 *.log
 .DS_Store
+web/public/pdfjs/
+dist-artifact/

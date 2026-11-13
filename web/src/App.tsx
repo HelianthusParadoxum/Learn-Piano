@@ -13,7 +13,7 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <a className="brand" href="#/">
+        <a className="brand" href="#home">
           <span className="brand-logo" aria-hidden>
             <svg viewBox="0 0 64 64" width="28" height="28">
               <rect width="64" height="64" rx="14" fill="#4f46e5" />
@@ -28,7 +28,7 @@ export function App() {
           <span className="brand-sub">разучивание по нотам</span>
         </a>
         <nav className="topnav">
-          <a href="#/" className={route.page === 'home' ? 'active' : ''}>
+          <a href="#home" className={route.page === 'home' ? 'active' : ''}>
             Мои пьесы
           </a>
         </nav>

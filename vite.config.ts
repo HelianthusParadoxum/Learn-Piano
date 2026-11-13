@@ -3,12 +3,13 @@ import react from '@vitejs/plugin-react';
 
 const apiTarget = process.env.API_URL || 'http://localhost:8000';
 
-export default defineConfig({
+// `vite build --mode artifact` makes the edition published as a Claude artifact (no server; recognition by Claude)
+export default defineConfig(({ mode }) => ({
   root: 'web',
   base: './',
   plugins: [react()],
   build: {
-    outDir: '../dist',
+    outDir: mode === 'artifact' ? '../dist-artifact' : '../dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 2500,
   },
@@ -21,4 +22,4 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/**/*.test.ts'],
   },
-});
+}));

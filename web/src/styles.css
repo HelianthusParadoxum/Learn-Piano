@@ -335,6 +335,27 @@ button {
   border-radius: 12px;
   margin: 12px 0;
 }
+.alert.info {
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+  margin: 14px 0 0;
+  font-size: 14px;
+}
+.pdf-view.pages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+.alert.warn {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.job-stop {
+  margin-top: 12px;
+}
 .alert.error {
   background: #fef2f2;
   color: #991b1b;
@@ -1395,6 +1416,23 @@ button.badge {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.row-actions.end {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.small-modal {
+  max-width: 420px;
+}
+.small-modal h3 {
+  font-size: 17px;
+}
+.btn.danger {
+  background: var(--red);
+  color: white;
+}
+.export-note {
+  color: #166534;
 }
 
 /* ---------- responsive ---------- */

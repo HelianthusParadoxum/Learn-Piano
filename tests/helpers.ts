@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { musicXmlFromBytes, parseScore } from '../web/src/lib/musicxml';
 
 export function loadExample(name: string) {
-  const bytes = readFileSync(resolve(__dirname, '../web/public/examples', name));
+  const bytes = readFileSync(resolve(__dirname, '../web/src/examples', name));
   return parseScore(musicXmlFromBytes(new Uint8Array(bytes), name));
 }
 

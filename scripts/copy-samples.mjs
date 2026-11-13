@@ -22,3 +22,16 @@ for (const f of readdirSync(src)) {
 }
 writeFileSync(join(dst, 'samples.json'), JSON.stringify(names.sort()));
 console.log(`piano samples: ${names.length} files in web/public/piano`);
+
+// pdf.js image decoders (JBIG2 / JPEG 2000 scans) for in-browser PDF rendering
+const pdfjsDir = dirname(require.resolve('pdfjs-dist/package.json'));
+const wasmDst = join(root, 'web', 'public', 'pdfjs', 'wasm');
+mkdirSync(wasmDst, { recursive: true });
+let wasmCount = 0;
+for (const f of readdirSync(join(pdfjsDir, 'wasm'))) {
+  if (!/^(jbig2|openjpeg|qcms)/.test(f)) continue;
+  const target = join(wasmDst, f);
+  if (!existsSync(target)) copyFileSync(join(pdfjsDir, 'wasm', f), target);
+  wasmCount++;
+}
+console.log(`pdf.js decoders: ${wasmCount} files in web/public/pdfjs/wasm`);

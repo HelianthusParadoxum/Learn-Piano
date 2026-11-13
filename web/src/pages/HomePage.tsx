@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { getHealth, getJob, getJobResult, submitPdf, type JobStatus, type ServerHealth } from '../lib/api';
 import { navigate } from '../lib/hooks';
 import { musicXmlFromBytes, parseScore } from '../lib/musicxml';
-import { deletePiece, listPieces, newPieceRecord, savePiece, type PieceRecord } from '../lib/storage';
+import { claudeOmrAvailable, recognizeWithClaude, type OmrProgress } from '../lib/omr/claudeOmr';
+import { IS_ARTIFACT } from '../lib/platform';
+import { deletePiece, listPieces, newPieceRecord, savePiece, storageIsPersistent, type PieceRecord } from '../lib/storage';
+
+/** Example pieces are bundled as separate chunks (loaded only when opened). */
+const EXAMPLE_LOADERS = import.meta.glob('../examples/*.musicxml', { query: '?raw', import: 'default' }) as Record<
+  string,
+  () => Promise<string>
+>;
 
 const EXAMPLES = [
   { file: 'ode-to-joy.musicxml', title: 'Ода к радости', composer: 'Л. ван Бетховен', level: 'для начинающих' },
@@ -13,8 +22,9 @@ const EXAMPLES = [
 
 interface JobView {
   fileName: string;
-  phase: 'upload' | 'recognize' | 'import' | 'error';
+  phase: 'upload' | 'recognize' | 'claude' | 'import' | 'error';
   status?: JobStatus;
+  claude?: OmrProgress & { pageStartedAt: number };
   error?: string;
   startedAt: number;
 }
@@ -26,6 +36,8 @@ function baseName(name: string) {
 export function HomePage() {
   const [pieces, setPieces] = useState<PieceRecord[] | null>(null);
   const [health, setHealth] = useState<ServerHealth | null>(null);
+  const [claudeOmr, setClaudeOmr] = useState<boolean | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [job, setJob] = useState<JobView | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
@@ -42,7 +54,8 @@ export function HomePage() {
   useEffect(() => {
     alive.current = true;
     refresh();
-    getHealth().then((h) => alive.current && setHealth(h));
+    if (IS_ARTIFACT) void claudeOmrAvailable().then((ok) => alive.current && setClaudeOmr(ok));
+    else getHealth().then((h) => alive.current && setHealth(h));
     const t = setInterval(() => setTick((x) => x + 1), 1000);
     return () => {
       alive.current = false;
@@ -50,7 +63,17 @@ export function HomePage() {
     };
   }, [refresh]);
 
-  async function importXml(xml: string, meta: { sourceName: string; sourceType: PieceRecord['sourceType']; pdf?: Blob; suffix?: string }) {
+  async function importXml(
+    xml: string,
+    meta: {
+      sourceName: string;
+      sourceType: PieceRecord['sourceType'];
+      pdf?: Blob;
+      pages?: Blob[];
+      recognizer?: PieceRecord['recognizer'];
+      suffix?: string;
+    },
+  ) {
     const score = parseScore(xml, baseName(meta.sourceName));
     if (!score.notes.length) throw new Error('В нотах не найдено ни одной ноты. Возможно, файл распознан неудачно.');
     const rec = newPieceRecord({
@@ -60,6 +83,8 @@ export function HomePage() {
       sourceName: meta.sourceName,
       sourceType: meta.sourceType,
       pdf: meta.pdf,
+      pages: meta.pages,
+      recognizer: meta.recognizer,
     });
     rec.measureCount = score.measures.length;
     await savePiece(rec);
@@ -78,7 +103,8 @@ export function HomePage() {
         const rec = await importXml(musicXmlFromBytes(bytes, file.name), { sourceName: file.name, sourceType: 'musicxml' });
         navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: 1 });
       } else if (isPdf || isImage) {
-        await recognizePdf(file);
+        if (IS_ARTIFACT) await recognizeByClaude(file, isPdf);
+        else await recognizePdf(file);
       } else {
         setError('Поддерживаются PDF, сканы нот (PNG, JPG, TIFF), MusicXML (.musicxml, .xml) и сжатый MusicXML (.mxl).');
       }
@@ -127,6 +153,50 @@ export function HomePage() {
     }
   }
 
+  async function recognizeByClaude(file: File, isPdf: boolean) {
+    if (claudeOmr === false) {
+      setError('Распознавание через Claude недоступно в этом окне. Загрузите MusicXML или откройте пример.');
+      return;
+    }
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    const startedAt = Date.now();
+    let pageStartedAt = startedAt;
+    let lastPage = 0;
+    setJob({ fileName: file.name, phase: 'claude', startedAt });
+    try {
+      const res = await recognizeWithClaude(
+        file,
+        (p) => {
+          if (!alive.current) return;
+          if (p.page !== lastPage) {
+            lastPage = p.page;
+            pageStartedAt = Date.now();
+          }
+          setJob({ fileName: file.name, phase: 'claude', claude: { ...p, pageStartedAt }, startedAt });
+        },
+        ctl.signal,
+      );
+      if (!alive.current) return;
+      setJob({ fileName: file.name, phase: 'import', startedAt });
+      const rec = await importXml(res.xml, {
+        sourceName: file.name,
+        sourceType: isPdf ? 'pdf' : 'image',
+        pages: res.pagePreviews,
+        recognizer: 'claude',
+      });
+      setJob(null);
+      navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: 1 });
+    } catch (e) {
+      if (!alive.current) return;
+      const code = (e as { code?: string }).code;
+      if (code === 'cancelled') setJob(null);
+      else setJob({ fileName: file.name, phase: 'error', error: String((e as Error).message || e), startedAt });
+    } finally {
+      abortRef.current = null;
+    }
+  }
+
   async function openExample(ex: (typeof EXAMPLES)[number]) {
     setError('');
     try {
@@ -135,10 +205,9 @@ export function HomePage() {
         navigate({ page: 'piece', pieceId: existing.id, tab: 'guide', step: 1 });
         return;
       }
-      const xml = await fetch(`./examples/${ex.file}`).then((r) => {
-        if (!r.ok) throw new Error('Пример не найден');
-        return r.text();
-      });
+      const load = EXAMPLE_LOADERS[`../examples/${ex.file}`];
+      if (!load) throw new Error('Пример не найден');
+      const xml = await load();
       const rec = await importXml(xml, { sourceName: ex.file, sourceType: 'example' });
       navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: 1 });
     } catch (e) {
@@ -146,8 +215,9 @@ export function HomePage() {
     }
   }
 
+  const [toDelete, setToDelete] = useState<PieceRecord | null>(null);
   async function remove(p: PieceRecord) {
-    if (!confirm(`Удалить «${p.title}» из библиотеки?`)) return;
+    setToDelete(null);
     await deletePiece(p.id);
     refresh();
   }
@@ -160,8 +230,9 @@ export function HomePage() {
         <div className="hero-text">
           <h1>Разучите пьесу по нотам — блок за блоком</h1>
           <p>
-            Загрузите PDF с нотами. Приложение распознает их, разделит пьесу на небольшие фразы, подберёт аппликатуру и
-            покажет на клавиатуре, как играть каждый блок. Каждый блок можно прослушать в удобном темпе.
+            Загрузите PDF или фото нот. {IS_ARTIFACT ? 'Claude распознает ноты, а приложение' : 'Приложение распознает их,'}{' '}
+            разделит пьесу на небольшие фразы, подберёт аппликатуру и покажет на клавиатуре, как играть каждый блок. Каждый
+            блок можно прослушать в удобном темпе.
           </p>
           <ol className="hero-steps">
             <li><b>Загрузка</b> — PDF или MusicXML</li>
@@ -215,6 +286,17 @@ export function HomePage() {
               <div className="drop-formats">PDF · скан PNG/JPG · MusicXML (.musicxml, .xml, .mxl)</div>
             </>
           )}
+          {job?.phase === 'claude' && (
+            <button
+              className="btn small job-stop"
+              onClick={(e) => {
+                e.stopPropagation();
+                abortRef.current?.abort();
+              }}
+            >
+              Остановить
+            </button>
+          )}
           {job?.phase === 'error' && (
             <div className="job-error">
               <b>Не получилось распознать «{job.fileName}».</b>
@@ -228,8 +310,13 @@ export function HomePage() {
         </div>
       </section>
 
-      <ServerStatus health={health} />
+      {IS_ARTIFACT ? <ClaudeStatus available={claudeOmr} /> : <ServerStatus health={health} />}
       {error && <div className="alert error">{error}</div>}
+      {pieces !== null && !storageIsPersistent() && (
+        <div className="alert warn">
+          Этот браузер не даёт странице сохранять данные: пьесы будут доступны только до закрытия вкладки.
+        </div>
+      )}
 
       <section className="section">
         <h2>Мои пьесы</h2>
@@ -246,14 +333,14 @@ export function HomePage() {
                 <div key={p.id} className="piece-card" onClick={() => navigate({ page: 'piece', pieceId: p.id, tab: 'guide', step: (p.lastBlock ?? 0) + 1 })}>
                   <div className="piece-card-top">
                     <span className={`source-tag ${p.sourceType}`}>
-                      {p.sourceType === 'pdf' ? 'PDF' : p.sourceType === 'example' ? 'Пример' : 'MusicXML'}
+                      {p.sourceType === 'pdf' ? 'PDF' : p.sourceType === 'image' ? 'Фото' : p.sourceType === 'example' ? 'Пример' : 'MusicXML'}
                     </span>
                     <button
                       className="icon-btn"
                       title="Удалить"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void remove(p);
+                        setToDelete(p);
                       }}
                     >
                       ✕
@@ -277,6 +364,17 @@ export function HomePage() {
         )}
       </section>
 
+      {toDelete && (
+        <ConfirmDialog
+          title={`Удалить «${toDelete.title}»?`}
+          text="Пьеса, ваша аппликатура и отметки о выученных блоках будут удалены из этого браузера."
+          confirmLabel="Удалить"
+          danger
+          onConfirm={() => void remove(toDelete)}
+          onCancel={() => setToDelete(null)}
+        />
+      )}
+
       <section className="section">
         <h2>Попробовать на примере</h2>
         <div className="examples">
@@ -289,6 +387,24 @@ export function HomePage() {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function ClaudeStatus({ available }: { available: boolean | null }) {
+  if (available === null) return null;
+  if (available) {
+    return (
+      <div className="server-status ok">
+        ● PDF и фото нот распознаёт Claude прямо на этой странице (из вашего лимита Claude; при первом запуске попросит
+        разрешение). Проверяйте результат по вкладке «Оригинал».
+      </div>
+    );
+  }
+  return (
+    <div className="server-status warn">
+      ● Распознавание PDF через Claude недоступно в этом окне. Откройте ссылку в claude.ai под своим аккаунтом или
+      загрузите MusicXML (например, экспорт из MuseScore). Примеры ниже работают всегда.
     </div>
   );
 }
@@ -337,7 +453,35 @@ const STAGE_RU: Record<string, string> = {
   import: 'Анализ: блоки и аппликатура',
 };
 
+function ClaudeProgress({ job, elapsed }: { job: JobView; elapsed: number }) {
+  const c = job.claude;
+  let pct = 3;
+  if (c?.stage === 'prepare') pct = 3 + (c.pages ? (c.page / c.pages) * 7 : 0);
+  if (c?.stage === 'read') {
+    const inPage = 0.92 * (1 - Math.exp(-(Date.now() - c.pageStartedAt) / 45000));
+    pct = 10 + 85 * ((c.page - 1 + inPage) / Math.max(1, c.pages));
+  }
+  if (c?.stage === 'build' || job.phase === 'import') pct = 97;
+  return (
+    <div className="job-progress" onClick={(e) => e.stopPropagation()}>
+      <div className="job-title">Распознаю ноты: «{job.fileName}»</div>
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${Math.round(pct)}%` }} />
+      </div>
+      <div className="job-stage">
+        {job.phase === 'import' ? 'Анализ: блоки и аппликатура' : c?.message ?? 'Подготовка…'}
+        {c && c.measures > 0 ? ` · тактов: ${c.measures}` : ''}
+      </div>
+      <div className="muted small">
+        Прошло {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}. Claude внимательно читает каждую строку
+        нот — обычно 1–3 минуты на страницу.
+      </div>
+    </div>
+  );
+}
+
 function JobProgress({ job, elapsed }: { job: JobView; elapsed: number }) {
+  if (job.phase === 'claude' || (job.phase === 'import' && !job.status)) return <ClaudeProgress job={job} elapsed={elapsed} />;
   const st = job.status;
   // the server reports Audiveris steps; if its log is terse, keep the bar moving with a time-based estimate
   const timeBased = st?.status === 'running' ? 0.9 * (1 - Math.exp(-elapsed / 50)) : 0;

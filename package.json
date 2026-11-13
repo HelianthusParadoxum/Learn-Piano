@@ -9,7 +9,8 @@
     "build": "node scripts/copy-samples.mjs && tsc --noEmit -p tsconfig.json && vite build",
     "start": "node server/server.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:artifact": "node scripts/copy-samples.mjs && tsc --noEmit -p tsconfig.json && vite build --mode artifact"
   },
   "engines": {
     "node": ">=20.19"
@@ -18,6 +19,7 @@
     "@audio-samples/piano-mp3-velocity8": "^1.0.5",
     "fflate": "^0.8.3",
     "opensheetmusicdisplay": "^2.3.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

@@ -41,11 +41,18 @@ export class PianoEngine {
     return this.ctx;
   }
 
+  /**
+   * Downloads and decodes the samples. Decoding uses an OfflineAudioContext, so no live audio
+   * context is created before the viewer clicks (some hosts only allow audio after a click).
+   */
   load(base = './piano/'): Promise<void> {
     if (this.loading) return this.loading;
     this.status = 'loading';
     this.loading = (async () => {
-      const ctx = this.ensureContext();
+      const Offline: typeof OfflineAudioContext =
+        window.OfflineAudioContext ||
+        (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+      const decoder = new Offline(2, 1, 44100);
       const names: string[] = await fetch(base + 'samples.json').then((r) => {
         if (!r.ok) throw new Error('samples.json ' + r.status);
         return r.json();
@@ -56,7 +63,7 @@ export class PianoEngine {
           if (!m) return;
           const midi = (Number(m[2]) + 1) * 12 + NOTE_INDEX[m[1]];
           const data = await fetch(`${base}${name}.mp3`).then((r) => r.arrayBuffer());
-          const buf = await ctx.decodeAudioData(data);
+          const buf = await decoder.decodeAudioData(data);
           this.buffers.set(midi, buf);
         }),
       );
