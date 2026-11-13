@@ -178,15 +178,21 @@ export interface PieceSettings {
   blockSize: 'auto' | 1 | 2 | 4 | 8;
   handSize: 'small' | 'medium' | 'large';
   noteNames: 'solfege' | 'latin';
-  /** how similar two fragments must be to count as one pattern (0.7, 0.8 or 0.9) */
-  similarity?: number;
+  /**
+   * How similar two fragments of a hand must be to count as one pattern (0.5…0.9), when chosen in the
+   * settings; otherwise DEFAULT_THRESHOLD. (An older `similarity` field holds the former default and is
+   * ignored.)
+   */
+  threshold?: number;
 }
+
+/** Fragments of a hand that match by at least this share of notes are one pattern. */
+export const DEFAULT_THRESHOLD = 0.5;
 
 export const DEFAULT_SETTINGS: PieceSettings = {
   blockSize: 'auto',
   handSize: 'medium',
   noteNames: 'solfege',
-  similarity: 0.8,
 };
 
 export const EPS = 1e-6;

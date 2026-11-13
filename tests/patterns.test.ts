@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Hand } from '../web/src/lib/model';
+import { DEFAULT_THRESHOLD, type Hand } from '../web/src/lib/model';
 import { parseScore } from '../web/src/lib/musicxml';
 import { diffLines, structureSummary } from '../web/src/lib/patternText';
-import { analyzePatterns, bestMatch, buildSteps, FragmentCache, stepOfBlock } from '../web/src/lib/patterns';
+import { analyzePatterns, bestMatch, buildSteps, FragmentCache, matchWindows, stepOfBlock } from '../web/src/lib/patterns';
 import { loadExample, loadFile } from './helpers';
 
-function describeStructure(name: string, threshold = 0.8) {
+function describeStructure(name: string, threshold = DEFAULT_THRESHOLD) {
   const s = name.endsWith('.mxl') ? loadFile(name) : loadExample(name);
   const { blocks, families } = analyzePatterns(s, 'auto', threshold);
   const of = (hand: Hand) => blocks.filter((b) => b.hand === hand);
@@ -18,10 +18,12 @@ function describeStructure(name: string, threshold = 0.8) {
 }
 
 describe('pattern analysis, separately for each hand', () => {
-  it('finds A A′ B A′ in the right hand and a a′ b a′ in the left hand of Ode to Joy', () => {
+  it('finds A A′ B A′ in the right hand and one left-hand pattern in Ode to Joy (threshold 50 %)', () => {
+    expect(DEFAULT_THRESHOLD).toBe(0.5);
     const { of, labels, families } = describeStructure('ode-to-joy.musicxml');
     expect(labels('R')).toEqual(['A', 'A′', 'B', 'A′']);
-    expect(labels('L')).toEqual(['a', 'a′', 'b', 'a′']);
+    // the left hand: bars 9–16 are a variation of bars 1–8 (about 63 % of the notes match)
+    expect(labels('L')).toEqual(['a', 'a′']);
     const R = of('R');
     expect(R[1].role).toBe('variation');
     expect(R[3].role).toBe('repeat');
@@ -29,7 +31,17 @@ describe('pattern analysis, separately for each hand', () => {
     const changedMeasures = R[1].diff!.measures.filter((m) => m.changed + m.missing + m.rhythm > 0).map((m) => m.offset);
     expect(changedMeasures).toEqual([3]);
     expect(families.filter((f) => f.hand === 'R')).toHaveLength(2);
-    expect(families.filter((f) => f.hand === 'L')).toHaveLength(2);
+    expect(families.filter((f) => f.hand === 'L')).toHaveLength(1);
+  });
+
+  it('a stricter threshold gives more patterns', () => {
+    const strict = describeStructure('ode-to-joy.musicxml', 0.8);
+    expect(strict.labels('R')).toEqual(['A', 'A′', 'B', 'A′']);
+    expect(strict.labels('L')).toEqual(['a', 'a′', 'b', 'a′']);
+    const minuet = describeStructure('minuet-in-g.musicxml', 0.8);
+    expect(minuet.families.filter((f) => f.hand === 'R').length).toBeGreaterThan(
+      describeStructure('minuet-in-g.musicxml').families.filter((f) => f.hand === 'R').length,
+    );
   });
 
   it('recognises a melody repeated over a new accompaniment as the same right-hand pattern', () => {
@@ -39,7 +51,7 @@ describe('pattern analysis, separately for each hand', () => {
     const again = R.find((b) => b.startMeasure === 8)!;
     expect(again.label).toBe('A');
     expect(again.role).toBe('repeat');
-    expect(minuet.labels('R').filter((l) => l === 'A')).toHaveLength(2);
+    expect(minuet.labels('R')).toEqual(['A', 'B', 'A', 'B′']);
     // the left hand is analysed on its own
     expect(minuet.of('L').every((b) => b.label === b.label.toLowerCase())).toBe(true);
 
@@ -54,7 +66,7 @@ describe('pattern analysis, separately for each hand', () => {
     const { steps, chunks, parts } = buildSteps(s, blocks, families);
     expect(parts).toEqual([[0, 15]]);
     const kinds = steps.map((st) => (st.kind === 'pattern' || st.kind === 'variation' ? `${st.kind}:${blocks[st.block].label}` : st.kind));
-    expect(kinds.slice(0, 6)).toEqual(['pattern:A', 'variation:A′', 'pattern:B', 'pattern:a', 'variation:a′', 'pattern:b']);
+    expect(kinds.slice(0, 5)).toEqual(['pattern:A', 'variation:A′', 'pattern:B', 'pattern:a', 'variation:a′']);
     expect(kinds).toContain('together');
     expect(steps[steps.length - 1]).toMatchObject({ kind: 'assemble', whole: true });
     // chunks for both hands cover the piece; identical chunks are learned once
@@ -75,7 +87,7 @@ describe('pattern analysis, separately for each hand', () => {
     const summary = structureSummary(blocks, families);
     expect(summary.map((h) => [h.hand, h.labels, h.patterns])).toEqual([
       ['R', 'A A′ B A′', 2],
-      ['L', 'a a′ b a′', 2],
+      ['L', 'a a′', 1],
     ]);
     expect(summary[0].learn).toBeLessThan(summary[0].measures);
   });
@@ -114,6 +126,21 @@ describe('pattern analysis, separately for each hand', () => {
     expect(shifted.every((b) => b.label === R[0].label)).toBe(true);
     // the copies right after the figure are learned together with it
     expect(R[0].sequenceEnd).toBe(shifted[shifted.length - 1].index);
+  });
+
+  it('accepts a match from another note only if it is strong and covers the whole fragment', () => {
+    const s = loadExample('twinkle.musicxml');
+    const right = new FragmentCache(s, 'R');
+    // bars 5–8 contain bars 3–4 a step higher, but bars 5–6 have nothing in common with bars 1–2:
+    // a step higher, half of the notes match …
+    const shifted = matchWindows(right.events(0, 4), right.events(4, 4), 1, true);
+    expect(shifted.sim).toBeGreaterThanOrEqual(0.5);
+    // … but that is not "the whole figure from another note", so the shift is not used
+    const best = bestMatch(right.events(0, 4), right.events(4, 4));
+    expect(best.steps).toBe(0);
+    expect(best.sim).toBeLessThan(0.5);
+    // a weak shifted match is not accepted either
+    expect(bestMatch(right.events(0, 4), right.events(4, 4), 0.99).steps).toBe(0);
   });
 
   it('compares fragments of one hand, with transposition', () => {

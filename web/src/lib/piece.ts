@@ -1,7 +1,7 @@
 /** End-to-end processing of a MusicXML document into a learning guide. */
 import { analyzeSpan, type BlockAnalysis, type Span } from './analysis';
 import { computeFingering } from './fingering';
-import { DEFAULT_SETTINGS, type Block, type GuideStep, type Hand, type PatternFamily, type PieceSettings, type Score } from './model';
+import { DEFAULT_THRESHOLD, type Block, type GuideStep, type Hand, type PatternFamily, type PieceSettings, type Score } from './model';
 import { parseScore, serializeXml, withFingerings } from './musicxml';
 import { analyzePatterns, buildSteps, equalNotePairs, type Chunk } from './patterns';
 
@@ -68,7 +68,7 @@ export function stepKey(score: Score, blocks: Block[], step: GuideStep): string 
 }
 
 export function buildGuide(score: Score, settings: PieceSettings, overrides: Record<string, number> = {}): Guide {
-  const { blocks, families } = analyzePatterns(score, settings.blockSize, settings.similarity ?? DEFAULT_SETTINGS.similarity!);
+  const { blocks, families } = analyzePatterns(score, settings.blockSize, settings.threshold ?? DEFAULT_THRESHOLD);
   const fingerOpts = { handSize: settings.handSize, tempo: score.tempoMap[0]?.bpm };
   computeFingering(score.notes, { ...fingerOpts, overrides });
   // the same notes in every appearance of a pattern get the same fingers as in its first appearance

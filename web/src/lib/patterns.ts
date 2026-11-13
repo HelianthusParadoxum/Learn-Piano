@@ -10,7 +10,8 @@
  *     same position in the fragment (± 1/24 of a quarter), same pitch after the best transposition
  *     (chromatic, or along the scale for sequences). A note whose length differs counts ¾.
  *     Similarity = 2·matches / (notes in both fragments) (the Dice coefficient).
- *  2. Fragments are one pattern when they are at least `threshold` similar (80 % by default).
+ *  2. Fragments are one pattern when they are at least `threshold` similar (50 % by default); a match
+ *     from another note (transposed) needs at least 60 % and must cover every measure of the fragment.
  *  3. Segmentation of each hand: pairs of repeating fragments of a learnable size are chosen greedily
  *     (longer, closer and phrase-aligned pairs first) as anchors; the remaining measures are split at
  *     phrase boundaries by dynamic programming. Long silences of a hand are not fragments.
@@ -19,7 +20,7 @@
  *  5. Hands together: the piece is cut into chunks whose boundaries coincide with the fragments of both
  *     hands where possible; identical chunks are learned once. Long pieces are learned part by part.
  */
-import { type Block, type BlockDiff, type GuideStep, type Hand, type NoteEvent, type PatternFamily, type Score } from './model';
+import { DEFAULT_THRESHOLD, type Block, type BlockDiff, type GuideStep, type Hand, type NoteEvent, type PatternFamily, type Score } from './model';
 import { fixedRanges, measureBoundaries, type BlockSizeMode, type BoundaryInfo } from './segment';
 
 /** Onset grid: 1/24 of a quarter note (covers triplets and 32nd notes). */
@@ -178,18 +179,40 @@ function topShifts(A: WEvent[], B: WEvent[], diatonic: boolean): number[] {
     .map(([d]) => d);
 }
 
-/** Best match over a few candidate transpositions (the most common pitch shifts between the fragments). */
-export function bestMatch(A: WEvent[], B: WEvent[]): WindowMatch {
+/**
+ * Shifted (transposed) matches must be at least this similar: the best of several shifts finds chance
+ * matches more easily, so a low threshold applies to matches without a shift only.
+ */
+export const MIN_SHIFTED = 0.6;
+
+/** The match is spread over the whole fragment: every measure with notes has something in common. */
+function spread(A: WEvent[], B: WEvent[], m: WindowMatch): boolean {
+  const notes = new Map<number, number>();
+  const matched = new Map<number, number>();
+  for (const e of A) notes.set(e.off, (notes.get(e.off) ?? 0) + 1);
+  for (const e of B) notes.set(e.off, (notes.get(e.off) ?? 0) + 1);
+  for (const [a, , q] of m.pairs) matched.set(A[a].off, (matched.get(A[a].off) ?? 0) + q);
+  for (const [off, n] of notes) if (n >= 2 && (2 * (matched.get(off) ?? 0)) / n < 0.25) return false;
+  return true;
+}
+
+/**
+ * Best match over a few candidate transpositions (the most common pitch shifts between the fragments).
+ * A shift is used only if it is clearly better than no shift, at least `minShifted` similar and spread
+ * over the whole fragment ("the whole figure from another note", not half of it).
+ */
+export function bestMatch(A: WEvent[], B: WEvent[], minShifted = MIN_SHIFTED): WindowMatch {
   const plain = matchWindows(A, B, 0);
   if (plain.sim > 0.999 || !A.length || !B.length) return plain;
   let best = plain;
+  const better = (m: WindowMatch) => m.sim >= best.sim + 0.1 && m.sim >= minShifted && spread(A, B, m);
   for (const t of topShifts(A, B, false)) {
     const m = matchWindows(A, B, t);
-    if (m.sim >= best.sim + 0.1) best = m;
+    if (better(m)) best = m;
   }
   for (const d of topShifts(A, B, true)) {
     const m = matchWindows(A, B, d, true);
-    if (m.sim >= best.sim + 0.1) best = m;
+    if (better(m)) best = m;
   }
   return best;
 }
@@ -299,7 +322,7 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
         const B = cache.events(j, L);
         // the Dice coefficient cannot exceed 2·min/(sum): skip hopeless pairs early
         if ((2 * Math.min(A.length, B.length)) / (A.length + B.length) < threshold) continue;
-        const m = bestMatch(A, B);
+        const m = bestMatch(A, B, Math.max(threshold, MIN_SHIFTED));
         if (m.sim < threshold) continue;
         const fit = 1 - Math.min(1, Math.abs((si + sj) / 2 - HAND_TARGET) / HAND_TARGET);
         const phrase = startStrength(i) + startStrength(j) + bounds[i + L - 1].strength + bounds[j + L - 1].strength;
@@ -479,7 +502,7 @@ function analyzeHand(
       for (const f of handFamilies) {
         const base = blocks[f.base];
         if (coreLen(base) !== coreLen(b) || ev(base).length < MIN_NOTES) continue;
-        const m = bestMatch(ev(base), notes);
+        const m = bestMatch(ev(base), notes, Math.max(threshold, MIN_SHIFTED));
         if (m.sim >= threshold && (!bestM || m.sim > bestM.sim)) {
           bestM = m;
           bestFamily = f;
@@ -562,7 +585,7 @@ function analyzeHand(
 }
 
 /** Splits each hand's part into fragments and groups them into pattern families. */
-export function analyzePatterns(score: Score, mode: BlockSizeMode = 'auto', threshold = 0.8): PatternStructure {
+export function analyzePatterns(score: Score, mode: BlockSizeMode = 'auto', threshold = DEFAULT_THRESHOLD): PatternStructure {
   const blocks: Block[] = [];
   const families: PatternFamily[] = [];
   if (score.measures.length === 0) return { blocks, families };

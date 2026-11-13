@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { PieceSettings } from '../lib/model';
+import { DEFAULT_THRESHOLD, type PieceSettings } from '../lib/model';
+import { MIN_SHIFTED } from '../lib/patterns';
 import type { Guide } from '../lib/piece';
 import { saveFile } from '../lib/platform';
 import type { PieceRecord } from '../lib/storage';
@@ -79,15 +80,16 @@ export function SettingsDialog(props: {
         <div className="field">
           <span>Насколько похожими должны быть фрагменты, чтобы считаться одним паттерном</span>
           <div className="seg">
-            {([0.7, 0.8, 0.9] as const).map((v) => (
-              <button key={v} className={(s.similarity ?? 0.8) === v ? 'on' : ''} onClick={() => onChange({ ...s, similarity: v })}>
-                {Math.round(v * 100)}%{v === 0.8 ? ' (рекомендуется)' : v === 0.7 ? ' — больше вариаций' : ' — только почти точные'}
+            {([0.5, 0.6, 0.7, 0.8, 0.9] as const).map((v) => (
+              <button key={v} className={(s.threshold ?? DEFAULT_THRESHOLD) === v ? 'on' : ''} onClick={() => onChange({ ...s, threshold: v })}>
+                {Math.round(v * 100)}%{v === DEFAULT_THRESHOLD ? ' (по умолчанию)' : v === 0.9 ? ' — только почти точные' : ''}
               </button>
             ))}
           </div>
           <small className="muted">
             Фрагменты одной руки, совпадающие хотя бы на этот процент нот, объединяются в паттерн: вы учите основу, а в
-            вариациях — только выделенные отличия. Правая и левая рука сравниваются каждая со своими фрагментами.
+            вариациях — только выделенные отличия. Чем ниже порог, тем меньше паттернов и больше вариаций. Тот же рисунок от
+            другой ноты (транспонированный) засчитывается не ниже чем при {Math.round(MIN_SHIFTED * 100)}% совпадения.
           </small>
         </div>
 
