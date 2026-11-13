@@ -4,6 +4,8 @@
  * large enough when the strips are shown to Claude.
  */
 
+import { IS_ARTIFACT } from '../platform';
+
 const TARGET_WIDTH = 2000;
 export const MAX_PAGES = 12;
 
@@ -14,14 +16,20 @@ export function isPdfFile(file: File) {
 export async function renderDocument(file: File, onPage?: (page: number, pages: number) => void): Promise<HTMLCanvasElement[]> {
   if (!isPdfFile(file)) return [await imageToCanvas(file)];
   const pdfjs = await import('pdfjs-dist');
-  const { default: workerSrc } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+  let wasmUrl: string;
+  let useWasm = true;
+  if (IS_ARTIFACT) {
+    // the artifact page may load scripts from the CDN but not fetch binaries: use the JS image decoders
+    pdfjs.GlobalWorkerOptions.workerSrc = __CDN_PDF_WORKER__;
+    wasmUrl = __CDN_PDF_WASM__;
+    useWasm = false;
+  } else {
+    const { default: workerSrc } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+    pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+    wasmUrl = new URL('./pdfjs/wasm/', document.baseURI).href;
+  }
   const data = new Uint8Array(await file.arrayBuffer());
-  const task = pdfjs.getDocument({
-    data,
-    useSystemFonts: true,
-    wasmUrl: new URL('./pdfjs/wasm/', document.baseURI).href,
-  });
+  const task = pdfjs.getDocument({ data, useSystemFonts: true, wasmUrl, useWasm });
   const doc = await task.promise;
   try {
     const n = Math.min(doc.numPages, MAX_PAGES);

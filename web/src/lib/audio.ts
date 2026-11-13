@@ -3,6 +3,7 @@
  * and a look-ahead scheduler that reports the playback position in quarter notes.
  */
 import type { Hand, NoteEvent, Score } from './model';
+import { IS_ARTIFACT } from './platform';
 import { quarterToSeconds, secondsToQuarter } from './timing';
 
 const NOTE_INDEX: Record<string, number> = { C: 0, Cs: 1, D: 2, Ds: 3, E: 4, F: 5, Fs: 6, G: 7, Gs: 8, A: 9, As: 10, B: 11 };
@@ -49,6 +50,14 @@ export class PianoEngine {
     if (this.loading) return this.loading;
     this.status = 'loading';
     this.loading = (async () => {
+      if (IS_ARTIFACT) {
+        // the shareable edition ships no audio files: the piano is synthesized in the page
+        const { synthesizePiano } = await import('./pianoSynth');
+        this.buffers = await synthesizePiano();
+        this.sampleKeys = Array.from(this.buffers.keys()).sort((a, b) => a - b);
+        this.status = 'ready';
+        return;
+      }
       const Offline: typeof OfflineAudioContext =
         window.OfflineAudioContext ||
         (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;

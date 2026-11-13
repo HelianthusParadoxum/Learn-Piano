@@ -1,6 +1,7 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { useEffect, useRef, useState } from 'react';
 import type { Block, Hand, Score } from '../lib/model';
+import { loadOsmd } from '../lib/osmdLoader';
 
 export interface ScoreViewProps {
   xml: string;
@@ -66,7 +67,7 @@ export function ScoreView(props: ScoreViewProps) {
   const ready = useRef<Promise<void> | null>(null);
   useEffect(() => {
     let disposed = false;
-    ready.current = import('opensheetmusicdisplay').then(({ OpenSheetMusicDisplay }) => {
+    ready.current = loadOsmd().then(({ OpenSheetMusicDisplay }) => {
       if (disposed || !hostRef.current) return;
       const osmd = new OpenSheetMusicDisplay(hostRef.current, {
       backend: 'svg',

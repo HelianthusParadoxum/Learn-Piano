@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { player } from './lib/audio';
 import { useRoute } from './lib/hooks';
+import { IS_ARTIFACT } from './lib/platform';
 import { HomePage } from './pages/HomePage';
 import { PiecePage } from './pages/PiecePage';
 
@@ -41,9 +42,19 @@ export function App() {
         )}
       </main>
       <footer className="footer">
-        Распознавание нот — <a href="https://github.com/Audiveris/audiveris" target="_blank" rel="noreferrer">Audiveris</a>,
-        нотная графика — <a href="https://opensheetmusicdisplay.org" target="_blank" rel="noreferrer">OpenSheetMusicDisplay</a>,
-        звук — Salamander Grand Piano (Alexander Holm, CC-BY 3.0). Ваши ноты хранятся только в этом браузере.
+        {IS_ARTIFACT ? (
+          <>
+            Распознавание нот — Claude, нотная графика —{' '}
+            <a href="https://opensheetmusicdisplay.org" target="_blank" rel="noreferrer">OpenSheetMusicDisplay</a>, звук —
+            встроенный синтезатор фортепиано. Ваши ноты хранятся только в этом браузере.
+          </>
+        ) : (
+          <>
+            Распознавание нот — <a href="https://github.com/Audiveris/audiveris" target="_blank" rel="noreferrer">Audiveris</a>,
+            нотная графика — <a href="https://opensheetmusicdisplay.org" target="_blank" rel="noreferrer">OpenSheetMusicDisplay</a>,
+            звук — Salamander Grand Piano (Alexander Holm, CC-BY 3.0). Ваши ноты хранятся только в этом браузере.
+          </>
+        )}
       </footer>
     </div>
   );
