@@ -14,7 +14,8 @@
  *     from another note (transposed) needs at least 60 % and must cover every measure of the fragment.
  *  3. Segmentation of each hand: pairs of repeating fragments of a learnable size are chosen greedily
  *     (longer, closer and phrase-aligned pairs first) as anchors; the remaining measures are split at
- *     phrase boundaries by dynamic programming. Long silences of a hand are not fragments.
+ *     phrase boundaries by dynamic programming. Long silences of a hand are not fragments. Two patterns
+ *     that always come together, with no phrase end between them, are joined into one (joinCompanions).
  *  4. Families per hand — right hand A, B, C…, left hand a, b, c…; differences of each variation from
  *     the base are recorded.
  *  5. Hands together: the piece is cut into chunks whose boundaries coincide with the fragments of both
@@ -505,6 +506,113 @@ export interface PatternStructure {
 /** Number of full measures of a fragment (its upbeat not counted). */
 const coreLen = (b: Block) => b.endMeasure - (b.coreStart ?? b.startMeasure) + 1;
 
+/** Families of a hand's fragments (in order): each fragment joins the most similar earlier family base. */
+interface Grouping {
+  /** family of each fragment, numbered in order of first appearance */
+  family: number[];
+  /** each fragment's match with its family's base (null: the fragment is the base) */
+  match: (WindowMatch | null)[];
+}
+
+function groupFragments(cache: FragmentCache, frags: HandRange[], threshold: number): Grouping {
+  const family: number[] = [];
+  const match: (WindowMatch | null)[] = [];
+  const bases: number[] = [];
+  for (let k = 0; k < frags.length; k++) {
+    const L = frags[k].b - frags[k].a + 1;
+    const notes = cache.events(frags[k].a, L);
+    let best = -1;
+    let bestM: WindowMatch | null = null;
+    if (notes.length >= MIN_NOTES) {
+      for (let f = 0; f < bases.length; f++) {
+        const base = frags[bases[f]];
+        if (base.b - base.a + 1 !== L) continue;
+        const ev = cache.events(base.a, L);
+        if (ev.length < MIN_NOTES) continue;
+        const m = bestMatch(ev, notes, threshold, true);
+        if (m.sim >= threshold && (!bestM || m.sim > bestM.sim)) {
+          bestM = m;
+          best = f;
+        }
+      }
+    }
+    if (best < 0 || !bestM) {
+      bases.push(k);
+      family.push(bases.length - 1);
+      match.push(null);
+    } else {
+      family.push(best);
+      match.push(bestM);
+    }
+  }
+  return { family, match };
+}
+
+/** Longest fragment (in measures) that two companion patterns may form together. */
+const COMPANION_MAX_LEN = 8;
+
+/**
+ * Two patterns of a hand that always come together — every appearance of one is followed right away by
+ * an appearance of the other, and the other never appears without it — are one pattern cut in two.
+ * (The anchors cut it when a half alone repeats more exactly or also resembles another passage, or the
+ * whole is longer than the preferred size.) They are joined when the seam between them is weaker than
+ * the edges of the whole (no phrase ends there) and the whole is still learnable in one go.
+ */
+export function joinCompanions(
+  cache: FragmentCache,
+  frags: HandRange[],
+  bounds: BoundaryInfo[],
+  threshold: number,
+  first: number,
+): { frags: HandRange[]; groups: Grouping } {
+  const maxSize = Math.round(HAND_TARGET * 2.2);
+  // strength of the boundary after measure k (before the first full measure: the start of the piece)
+  const after = (k: number) => (k < first ? 3 : bounds[k].strength);
+  for (let pass = 0; ; pass++) {
+    const groups = groupFragments(cache, frags, threshold);
+    if (pass === 8) return { frags, groups };
+    const { family } = groups;
+    const where = new Map<number, number[]>();
+    family.forEach((f, k) => where.set(f, [...(where.get(f) ?? []), k]));
+    // family of the fragment right after fragment k (-1: a gap or the end)
+    const next = (k: number) => (k + 1 < frags.length && frags[k + 1].a === frags[k].b + 1 ? family[k + 1] : -1);
+    let join: number[] | null = null;
+    let weakest = Infinity;
+    for (const [f, ks] of where) {
+      if (ks.length < 2) continue;
+      const g = next(ks[0]);
+      if (g < 0 || g === f || !ks.every((k) => next(k) === g) || where.get(g)!.length !== ks.length) continue;
+      let seam = 0;
+      let start = 0;
+      let end = 0;
+      let fits = true;
+      for (const k of ks) {
+        const a = frags[k].a;
+        const b = frags[k + 1].b;
+        if (bounds[frags[k].b].hard || b - a + 1 > COMPANION_MAX_LEN || cache.size(a, b - a + 1) > maxSize) fits = false;
+        seam += bounds[frags[k].b].strength / ks.length;
+        start += after(a - 1) / ks.length;
+        end += after(b) / ks.length;
+      }
+      if (!fits || seam >= PHRASE_EDGE || seam >= Math.min(start, end)) continue;
+      if (seam < weakest) {
+        weakest = seam;
+        join = ks;
+      }
+    }
+    if (!join) return { frags, groups };
+    const joined = new Set(join);
+    const out: HandRange[] = [];
+    for (let k = 0; k < frags.length; k++) {
+      if (joined.has(k)) {
+        out.push({ a: frags[k].a, b: frags[k + 1].b });
+        k++;
+      } else out.push(frags[k]);
+    }
+    frags = out;
+  }
+}
+
 /** Fragments and pattern families of one hand (appended to `blocks` and `families`). */
 function analyzeHand(
   score: Score,
@@ -522,10 +630,12 @@ function analyzeHand(
     mode === 'auto'
       ? handRanges(score, cache, bounds, threshold)
       : fixedRanges(bounds.slice(first), mode).map(([a, b]) => ({ a: a + first, b: b + first, rest: cache.size(a + first, b - a + 1) === 0 }));
+  const parts = ranges.filter((r) => !r.rest && cache.size(r.a, r.b - r.a + 1) > 0);
+  const { frags, groups } =
+    mode === 'auto' ? joinCompanions(cache, parts, bounds, threshold, first) : { frags: parts, groups: groupFragments(cache, parts, threshold) };
 
   const mine: Block[] = [];
-  for (const r of ranges) {
-    if (r.rest || cache.size(r.a, r.b - r.a + 1) === 0) continue;
+  for (const r of frags) {
     // the fragment starts with the upbeat into its first measure and ends where the next upbeat starts
     const start = cache.startOf(r.a);
     const b: Block = {
@@ -549,22 +659,11 @@ function analyzeHand(
   const handFamilies: PatternFamily[] = [];
   const ev = (b: Block) => cache.events(b.coreStart ?? b.startMeasure, coreLen(b));
   const variantCount = new Map<number, number>();
-  for (const b of mine) {
+  for (let k = 0; k < mine.length; k++) {
+    const b = mine[k];
     const notes = ev(b);
-    let bestFamily: PatternFamily | null = null;
-    let bestM: WindowMatch | null = null;
-    if (notes.length >= MIN_NOTES) {
-      for (const f of handFamilies) {
-        const base = blocks[f.base];
-        if (coreLen(base) !== coreLen(b) || ev(base).length < MIN_NOTES) continue;
-        const m = bestMatch(ev(base), notes, threshold, true);
-        if (m.sim >= threshold && (!bestM || m.sim > bestM.sim)) {
-          bestM = m;
-          bestFamily = f;
-        }
-      }
-    }
-    if (!bestFamily || !bestM) {
+    const bestM = groups.match[k];
+    if (!bestM) {
       const f: PatternFamily = {
         index: families.length,
         hand,
@@ -578,7 +677,7 @@ function analyzeHand(
       b.label = f.letter;
       continue;
     }
-    const f = bestFamily;
+    const f = handFamilies[groups.family[k]];
     const base = blocks[f.base];
     f.blocks.push(b.index);
     b.family = f.index;

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, DEFAULT_THRESHOLD, type Hand } from '../web/src/lib/model';
 import { parseScore } from '../web/src/lib/musicxml';
 import { diffLines, structureSummary } from '../web/src/lib/patternText';
-import { analyzePatterns, bestMatch, buildSteps, FragmentCache, matchWindows, stepOfBlock } from '../web/src/lib/patterns';
+import { analyzePatterns, bestMatch, buildSteps, FragmentCache, joinCompanions, matchWindows, stepOfBlock } from '../web/src/lib/patterns';
+import { measureBoundaries } from '../web/src/lib/segment';
 import { buildGuide } from '../web/src/lib/piece';
 import { loadExample, loadFile } from './helpers';
 
@@ -243,5 +244,84 @@ describe('a phrase repeated a step higher with a changed middle', () => {
     const own = finger === 4 ? 3 : 4;
     const g2 = buildGuide(s, DEFAULT_SETTINGS, { [baseNote.key]: finger, [copyNote.key]: own });
     expect(g2.score.notes[copyNote.id].finger).toBe(own);
+  });
+});
+
+describe('a phrase whose halves always come together', () => {
+  // own melody, 4/4: a four-bar phrase of running eighths comes back three times between other phrases.
+  // Each half alone is closer to the preferred fragment size, so the anchors cut the phrase in two; but
+  // the halves always come together and no phrase ends between them, so they are one pattern.
+  const TYPES: Record<number, string> = { 1: 'eighth', 2: 'quarter', 4: 'half', 8: 'whole' };
+  const n = (p: string, dur: number, staff = 1) =>
+    `<note><pitch><step>${p[0]}</step><octave>${p[1]}</octave></pitch><duration>${dur}</duration><voice>${staff}</voice><type>${TYPES[dur]}</type><staff>${staff}</staff></note>`;
+  // "G5:2 A5:1" — a note and its length in eighths
+  const bar = (notes: string) =>
+    notes
+      .split(' ')
+      .map((t) => n(t.slice(0, 2), Number(t.slice(3))))
+      .join('');
+  const ATTRS =
+    '<attributes><divisions>2</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>';
+  const scoreOf = (bars: string[]) =>
+    parseScore(
+      `<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list><part id="P1">${bars
+        .map((b, i) => `<measure number="${i + 1}">${i === 0 ? ATTRS : ''}${bar(b)}<backup><duration>8</duration></backup>${n(i % 2 ? 'G2' : 'C3', 8, 2)}</measure>`)
+        .join('')}</part></score-partwise>`,
+    );
+  const first = ['C5:2 E5:2 G5:2 E5:2', 'F5:2 D5:2 B4:4', 'C5:2 E5:2 A5:2 G5:2', 'E5:8'];
+  const second = ['E5:2 D5:2 C5:2 D5:2', 'E5:2 E5:2 E5:4', 'D5:2 D5:2 E5:2 D5:2', 'C5:8'];
+  const third = ['G4:2 C5:2 E5:2 C5:2', 'D5:4 G4:4', 'A4:2 B4:2 C5:2 D5:2', 'C5:8'];
+  const running = [
+    'G5:2 A5:1 G5:1 F5:1 E5:1 D5:1 E5:1',
+    'F5:2 G5:1 F5:1 E5:1 D5:1 C5:1 D5:1',
+    'E5:2 C5:1 D5:1 E5:1 F5:1 G5:1 A5:1',
+    'G5:2 F5:1 E5:1 D5:1 C5:1 B4:1 D5:1',
+  ];
+  // the running phrase in bars 5–8, 13–16 and 21–24; the song ends with its first phrase
+  const song = (phrase: string[]) => [...first, ...phrase, ...second, ...phrase, ...third, ...phrase, ...first];
+  const rightHand = (bars: string[]) => analyzePatterns(scoreOf(bars)).blocks.filter((b) => b.hand === 'R');
+
+  it('joins them into one pattern', () => {
+    const R = rightHand(song(running));
+    const phrase = R.filter((b) => [4, 12, 20].includes(b.coreStart!));
+    expect(phrase.map((b) => [b.coreStart, b.endMeasure])).toEqual([
+      [4, 7],
+      [12, 15],
+      [20, 23],
+    ]);
+    expect(new Set(phrase.map((b) => b.family)).size).toBe(1);
+    expect(phrase.map((b) => b.role)).toEqual(['base', 'repeat', 'repeat']);
+  });
+
+  it('keeps them apart when a phrase ends between them or one half also comes alone', () => {
+    // the song cut into its phrases, the running phrase into halves
+    const halves = [
+      [0, 3],
+      [4, 5],
+      [6, 7],
+      [8, 11],
+      [12, 13],
+      [14, 15],
+      [16, 19],
+      [20, 21],
+      [22, 23],
+      [24, 27],
+    ].map(([a, b]) => ({ a, b }));
+    const join = (bars: string[], frags = halves) => {
+      const s = scoreOf(bars);
+      return joinCompanions(new FragmentCache(s, 'R'), frags, measureBoundaries(s), DEFAULT_THRESHOLD, 0).frags;
+    };
+    expect(join(song(running)).filter((f) => [4, 12, 20].includes(f.a))).toEqual([
+      { a: 4, b: 7 },
+      { a: 12, b: 15 },
+      { a: 20, b: 23 },
+    ]);
+    // the first half ends on a long note: a question and an answer, two phrases
+    expect(join(song([running[0], 'F5:2 G5:1 F5:1 E5:4', running[2], running[3]]))).toEqual(halves);
+    // the second half comes once more on its own (bars 9–10 instead of the start of the second phrase)
+    const alone = halves.flatMap((f) => (f.a === 8 ? [{ a: 8, b: 9 }, { a: 10, b: 11 }] : [f]));
+    const bars = song(running);
+    bars.splice(8, 2, running[2], running[3]);
+    expect(join(bars, alone)).toEqual(alone);
   });
 });
