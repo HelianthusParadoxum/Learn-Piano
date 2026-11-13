@@ -247,27 +247,29 @@ describe('a phrase repeated a step higher with a changed middle', () => {
   });
 });
 
+/** Own melodies in 4/4: a bar is "G5:2 A5:1 …" (a note and its length in eighths); the left hand holds C3 / G2. */
+const TYPES: Record<number, string> = { 1: 'eighth', 2: 'quarter', 4: 'half', 8: 'whole' };
+const xmlNote = (p: string, dur: number, staff = 1) =>
+  `<note><pitch><step>${p[0]}</step><octave>${p[1]}</octave></pitch><duration>${dur}</duration><voice>${staff}</voice><type>${TYPES[dur]}</type><staff>${staff}</staff></note>`;
+const xmlBar = (notes: string) =>
+  notes
+    .split(' ')
+    .map((t) => xmlNote(t.slice(0, 2), Number(t.slice(3))))
+    .join('');
+const ATTRS =
+  '<attributes><divisions>2</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>';
+const scoreOf = (bars: string[]) =>
+  parseScore(
+    `<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list><part id="P1">${bars
+      .map((b, i) => `<measure number="${i + 1}">${i === 0 ? ATTRS : ''}${xmlBar(b)}<backup><duration>8</duration></backup>${xmlNote(i % 2 ? 'G2' : 'C3', 8, 2)}</measure>`)
+      .join('')}</part></score-partwise>`,
+  );
+const rightHand = (bars: string[]) => analyzePatterns(scoreOf(bars)).blocks.filter((b) => b.hand === 'R');
+
 describe('a phrase whose halves always come together', () => {
   // own melody, 4/4: a four-bar phrase of running eighths comes back three times between other phrases.
   // Each half alone is closer to the preferred fragment size, so the anchors cut the phrase in two; but
   // the halves always come together and no phrase ends between them, so they are one pattern.
-  const TYPES: Record<number, string> = { 1: 'eighth', 2: 'quarter', 4: 'half', 8: 'whole' };
-  const n = (p: string, dur: number, staff = 1) =>
-    `<note><pitch><step>${p[0]}</step><octave>${p[1]}</octave></pitch><duration>${dur}</duration><voice>${staff}</voice><type>${TYPES[dur]}</type><staff>${staff}</staff></note>`;
-  // "G5:2 A5:1" — a note and its length in eighths
-  const bar = (notes: string) =>
-    notes
-      .split(' ')
-      .map((t) => n(t.slice(0, 2), Number(t.slice(3))))
-      .join('');
-  const ATTRS =
-    '<attributes><divisions>2</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>';
-  const scoreOf = (bars: string[]) =>
-    parseScore(
-      `<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list><part id="P1">${bars
-        .map((b, i) => `<measure number="${i + 1}">${i === 0 ? ATTRS : ''}${bar(b)}<backup><duration>8</duration></backup>${n(i % 2 ? 'G2' : 'C3', 8, 2)}</measure>`)
-        .join('')}</part></score-partwise>`,
-    );
   const first = ['C5:2 E5:2 G5:2 E5:2', 'F5:2 D5:2 B4:4', 'C5:2 E5:2 A5:2 G5:2', 'E5:8'];
   const second = ['E5:2 D5:2 C5:2 D5:2', 'E5:2 E5:2 E5:4', 'D5:2 D5:2 E5:2 D5:2', 'C5:8'];
   const third = ['G4:2 C5:2 E5:2 C5:2', 'D5:4 G4:4', 'A4:2 B4:2 C5:2 D5:2', 'C5:8'];
@@ -279,7 +281,6 @@ describe('a phrase whose halves always come together', () => {
   ];
   // the running phrase in bars 5–8, 13–16 and 21–24; the song ends with its first phrase
   const song = (phrase: string[]) => [...first, ...phrase, ...second, ...phrase, ...third, ...phrase, ...first];
-  const rightHand = (bars: string[]) => analyzePatterns(scoreOf(bars)).blocks.filter((b) => b.hand === 'R');
 
   it('joins them into one pattern', () => {
     const R = rightHand(song(running));
@@ -323,5 +324,31 @@ describe('a phrase whose halves always come together', () => {
     const bars = song(running);
     bars.splice(8, 2, running[2], running[3]);
     expect(join(bars, alone)).toEqual(alone);
+  });
+});
+
+describe('the end of the piece', () => {
+  // own melody, 4/4: X Y, then P; X with another continuation (Z), P again and the final note
+  const X = ['E5:2 G5:2 C6:2 G5:2', 'A5:2 F5:2 D5:4'];
+  const Y = ['C5:2 D5:2 E5:2 F5:2', 'G5:2 E5:2 C5:4'];
+  const Z = ['F5:2 E5:2 D5:2 C5:2', 'G5:2 E5:2 C5:4'];
+  const P = ['G4:2 A4:2 B4:2 G4:2', 'C5:1 B4:1 A4:1 B4:1 C5:4'];
+  const bars = [...X, ...Y, ...P, ...X, ...Z, ...P, 'C5:8'];
+
+  it('does not let a fragment that ends the piece pull its partner into the next phrase', () => {
+    // P with the bar after it (bars 5–7) matches P with the final note (bars 11–13). The final barline is
+    // the strongest boundary of the piece, but it must not make up for bar 7 ending in the middle of a
+    // phrase: bar 7 starts X again, the same pattern as bar 1
+    const R = rightHand(bars);
+    const at = (bar: number) => R.find((b) => b.coreStart === bar - 1);
+    expect(at(5)?.endMeasure).toBe(5);
+    expect(at(7)?.family).toBe(at(1)?.family);
+  });
+
+  it('does not leave the final note as a pattern of its own', () => {
+    const R = rightHand(bars);
+    const last = R[R.length - 1];
+    expect(last.endMeasure).toBe(12);
+    expect(last.coreStart).toBeLessThan(12);
   });
 });

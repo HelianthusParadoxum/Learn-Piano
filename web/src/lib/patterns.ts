@@ -15,7 +15,8 @@
  *  3. Segmentation of each hand: pairs of repeating fragments of a learnable size are chosen greedily
  *     (longer, closer and phrase-aligned pairs first) as anchors; the remaining measures are split at
  *     phrase boundaries by dynamic programming. Long silences of a hand are not fragments. Two patterns
- *     that always come together, with no phrase end between them, are joined into one (joinCompanions).
+ *     that always come together, with no phrase end between them, are joined into one (joinCompanions);
+ *     a fragment of one or two notes joins its neighbour (absorbTiny).
  *  4. Families per hand — right hand A, B, C…, left hand a, b, c…; differences of each variation from
  *     the base are recorded.
  *  5. Hands together: the piece is cut into chunks whose boundaries coincide with the fragments of both
@@ -262,6 +263,8 @@ export function bestMatch(A: WEvent[], B: WEvent[], threshold = 0, sameRhythmAtT
 const MIN_NOTES = 3;
 /** Boundary strength of a clear phrase edge (a long note or rest, an upbeat, a 2/4-bar position). */
 const PHRASE_EDGE = 2;
+/** Boundary strength that counts as a full phrase edge, like the start of the piece (stronger counts the same). */
+const FULL_EDGE = 3;
 const LEN_COST = [0, 0.4, 0, 0.35, 0, 0.7, 0.3, 0.8, 0.1];
 
 interface Segmenter {
@@ -342,7 +345,10 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
       i >= first && i + L <= M && hardPrefix[i + L - 1] - hardPrefix[i] === 0 && silentPrefix[i + L] - silentPrefix[i] === 0,
     size: (i, L) => cache.size(i, L),
   };
-  const startStrength = (i: number) => (i === first ? 3 : bounds[i - 1].strength);
+  const startStrength = (i: number) => (i === first ? FULL_EDGE : bounds[i - 1].strength);
+  // a boundary at least as strong as the start of the piece is a full phrase edge; stronger ones (the
+  // end of the piece, repeat signs) must not make up for a partner that ends in the middle of a phrase
+  const edge = (strength: number) => Math.min(strength, FULL_EDGE);
   const minSize = Math.max(MIN_NOTES, Math.round(HAND_TARGET * 0.4));
   const maxSize = Math.round(HAND_TARGET * 2.2);
 
@@ -383,13 +389,13 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
   for (const p of pairs) {
     const { i, j, L, m, si, sj } = p;
     const fit = 1 - Math.min(1, Math.abs((si + sj) / 2 - HAND_TARGET) / HAND_TARGET);
-    const phrase = startStrength(i) + startStrength(j) + bounds[i + L - 1].strength + bounds[j + L - 1].strength;
+    const phrase = edge(startStrength(i)) + edge(startStrength(j)) + edge(bounds[i + L - 1].strength) + edge(bounds[j + L - 1].strength);
     const exact = m.sim > 0.999 && m.t === 0 && m.steps === 0 ? 0.5 : 0;
     // irregular lengths (3, 5, 7 measures) are rarely phrases
     const irregular = 1.5 * (LEN_COST[Math.min(L, 8)] ?? 1);
     const recurs = ((support.get(`${i}|${L}`) ?? 1) + (support.get(`${j}|${L}`) ?? 1)) / 2;
     const often = 0.4 * Math.min(4, recurs - 1);
-    p.value = L * m.sim * fit + 0.5 * Math.min(phrase, 14) + exact - irregular + often;
+    p.value = L * m.sim * fit + 0.5 * phrase + exact - irregular + often;
   }
   pairs.sort((a, b) => b.value - a.value);
 
@@ -567,7 +573,7 @@ export function joinCompanions(
 ): { frags: HandRange[]; groups: Grouping } {
   const maxSize = Math.round(HAND_TARGET * 2.2);
   // strength of the boundary after measure k (before the first full measure: the start of the piece)
-  const after = (k: number) => (k < first ? 3 : bounds[k].strength);
+  const after = (k: number) => (k < first ? FULL_EDGE : Math.min(bounds[k].strength, FULL_EDGE));
   for (let pass = 0; ; pass++) {
     const groups = groupFragments(cache, frags, threshold);
     if (pass === 8) return { frags, groups };
@@ -613,6 +619,29 @@ export function joinCompanions(
   }
 }
 
+/**
+ * A fragment of fewer than MIN_NOTES onsets (a lone final note or chord) is not a pattern to learn: it
+ * joins the fragment before it, or the one after it if that is not possible.
+ */
+function absorbTiny(cache: FragmentCache, frags: HandRange[], bounds: BoundaryInfo[]): HandRange[] {
+  const maxSize = Math.round(HAND_TARGET * 2.2);
+  const size = (r: HandRange) => cache.size(r.a, r.b - r.a + 1);
+  // fragment a right before fragment b can take it in
+  const joinable = (a: HandRange, b: HandRange) =>
+    b.a === a.b + 1 && !bounds[a.b].hard && b.b - a.a + 1 <= COMPANION_MAX_LEN && cache.size(a.a, b.b - a.a + 1) <= maxSize;
+  const out = [...frags];
+  for (let k = 0; k < out.length; k++) {
+    if (size(out[k]) >= MIN_NOTES) continue;
+    if (k > 0 && joinable(out[k - 1], out[k])) {
+      out.splice(k - 1, 2, { a: out[k - 1].a, b: out[k].b });
+      k--;
+    } else if (k + 1 < out.length && joinable(out[k], out[k + 1])) {
+      out.splice(k, 2, { a: out[k].a, b: out[k + 1].b });
+    }
+  }
+  return out;
+}
+
 /** Fragments and pattern families of one hand (appended to `blocks` and `families`). */
 function analyzeHand(
   score: Score,
@@ -632,7 +661,9 @@ function analyzeHand(
       : fixedRanges(bounds.slice(first), mode).map(([a, b]) => ({ a: a + first, b: b + first, rest: cache.size(a + first, b - a + 1) === 0 }));
   const parts = ranges.filter((r) => !r.rest && cache.size(r.a, r.b - r.a + 1) > 0);
   const { frags, groups } =
-    mode === 'auto' ? joinCompanions(cache, parts, bounds, threshold, first) : { frags: parts, groups: groupFragments(cache, parts, threshold) };
+    mode === 'auto'
+      ? joinCompanions(cache, absorbTiny(cache, parts, bounds), bounds, threshold, first)
+      : { frags: parts, groups: groupFragments(cache, parts, threshold) };
 
   const mine: Block[] = [];
   for (const r of frags) {
