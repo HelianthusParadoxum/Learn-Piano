@@ -100,9 +100,14 @@ export interface Score {
   doc: XMLDocument;
 }
 
-/** A fragment of the piece (a whole number of measures) and its place in the pattern structure. */
+/**
+ * A fragment of one hand's part (a whole number of measures) and its place in that hand's pattern
+ * structure. The right and the left hand are analysed separately.
+ */
 export interface Block {
   index: number;
+  /** the hand whose notes this fragment is about */
+  hand: Hand;
   startMeasure: number;
   endMeasure: number;
   start: number;
@@ -111,12 +116,19 @@ export interface Block {
   coreStart?: number;
   /** pattern family (index into the families list) */
   family: number;
-  /** "A", "A′", "B"… — exact repeats carry the label of what they repeat */
+  /** right hand: "A", "A′", "B"…; left hand: "a", "a′", "b"… — exact repeats carry the label of what they repeat */
   label: string;
-  /** base = first appearance of a pattern; variation = differs from the base; repeat = identical to an earlier block */
+  /**
+   * base = first appearance of a pattern; variation = differs from the base; repeat = the same notes as
+   * an earlier block, possibly from another note (`transpose` / `steps`)
+   */
   role: 'base' | 'variation' | 'repeat';
   /** for repeats: the earlier identical block (the base or a variation) */
   repeatOf?: number;
+  /** transposed copies directly after this block (a sequence) are learned with it: last block of the run */
+  sequenceEnd?: number;
+  /** member of a sequence: the block that starts the run */
+  sequenceOf?: number;
   /** similarity to the family's base, 0..1 */
   similarity: number;
   /** transposition relative to the base, in semitones (0 for diatonic sequences, see `steps`) */
@@ -127,7 +139,7 @@ export interface Block {
   diff?: BlockDiff;
 }
 
-/** Note-level differences of a block from the base of its pattern family. */
+/** Note-level differences of a block from the base of its pattern family (notes of the block's hand). */
 export interface BlockDiff {
   /** ids of notes in this block that have no counterpart in the base (new or changed pitch) */
   changed: number[];
@@ -137,12 +149,11 @@ export interface BlockDiff {
   baseUnmatched: number[];
   /** per measure of the block (offset from its first measure) */
   measures: { offset: number; changed: number; missing: number; rhythm: number }[];
-  /** similarity of each hand to the base (1 = identical) */
-  hands: Record<Hand, number>;
 }
 
 export interface PatternFamily {
   index: number;
+  hand: Hand;
   letter: string;
   /** block index of the first appearance */
   base: number;
@@ -150,10 +161,18 @@ export interface PatternFamily {
   blocks: number[];
 }
 
+/**
+ * One step of the guide. Every step belongs to a part of the piece (`part`, index into Guide.parts):
+ * short pieces have one part, long ones are learned part by part.
+ *  - pattern / variation: one hand learns a pattern or a variation of it;
+ *  - together: both hands play a chunk for the first time;
+ *  - assemble: chunks joined into a longer stretch (`whole` — the entire piece).
+ */
 export type GuideStep =
-  | { kind: 'pattern'; block: number }
-  | { kind: 'variation'; block: number }
-  | { kind: 'assemble'; fromBlock: number; toBlock: number; whole: boolean };
+  | { kind: 'pattern'; block: number; part: number }
+  | { kind: 'variation'; block: number; part: number }
+  | { kind: 'together'; startMeasure: number; endMeasure: number; part: number }
+  | { kind: 'assemble'; startMeasure: number; endMeasure: number; whole: boolean; part: number };
 
 export interface PieceSettings {
   blockSize: 'auto' | 1 | 2 | 4 | 8;

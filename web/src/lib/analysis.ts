@@ -74,10 +74,18 @@ export interface Span {
   end: number;
 }
 
-export type StepKind = 'pattern' | 'variation' | 'assemble';
+export type StepKind = 'pattern' | 'variation' | 'together' | 'assemble';
 
-export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern', isFirst = false): BlockAnalysis {
-  const inBlock = score.notes.filter((n) => n.hand && n.onset >= block.start - EPS && n.onset < block.end - EPS);
+const HAND_INSTR: Record<Hand, string> = { R: 'правой рукой', L: 'левой рукой' };
+
+/**
+ * Hints for a guide step. `hand` limits the analysis to one hand (pattern and variation steps are
+ * learned with one hand; together and assemble steps with both).
+ */
+export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern', isFirst = false, hand?: Hand): BlockAnalysis {
+  const inBlock = score.notes.filter(
+    (n) => n.hand && (!hand || n.hand === hand) && n.onset >= block.start - EPS && n.onset < block.end - EPS,
+  );
   const byHand: Record<Hand, NoteEvent[]> = {
     R: inBlock.filter((n) => n.hand === 'R'),
     L: inBlock.filter((n) => n.hand === 'L'),
@@ -228,10 +236,10 @@ export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern
     tips.push({ kind: 'tie', text: 'Залигованные ноты: нажмите клавишу один раз и держите её на всю суммарную длительность.' });
   }
   const bothHands = byHand.R.length > 0 && byHand.L.length > 0;
-  if (bothHands) {
+  if (bothHands && kind === 'together') {
     tips.push({
       kind: 'hands',
-      text: 'Сначала разучите каждую руку отдельно, затем соедините медленно — темп важнее скорости.',
+      text: 'Каждую руку вы уже разучили отдельно. Соединяйте медленно — ровность важнее скорости.',
     });
   }
 
@@ -251,21 +259,30 @@ export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern
   const labels = ['', 'очень легко', 'легко', 'средне', 'сложно', 'очень сложно'];
 
   const plan: string[] = [];
+  const by = hand ? HAND_INSTR[hand] : '';
   if (kind === 'variation') {
     plan.push('Нажмите «Сравнить»: сначала прозвучит основа паттерна, затем эта вариация. Услышьте разницу.');
     plan.push('Найдите выделенные ноты — только они отличаются от уже выученной основы.');
-    plan.push('Сыграйте отдельно такты с отличиями, медленно, 3 раза подряд без ошибок.');
+    plan.push(`Сыграйте ${by ? by + ' ' : ''}такты с отличиями, медленно, 3 раза подряд без ошибок.`);
     plan.push('Сыграйте вариацию целиком, сначала медленно, затем в темпе 80–100%.');
+  } else if (kind === 'together') {
+    plan.push('Послушайте фрагмент двумя руками и проследите глазами за обеими строчками нот.');
+    plan.push('Вспомните каждую руку отдельно — эти паттерны вы уже разучили.');
+    plan.push('Соедините руки очень медленно (40–50%). Если сбиваетесь, сыграйте этот такт каждой рукой и снова вместе.');
+    plan.push('Постепенно повышайте темп до 80–100%. Цель — 3 раза подряд без ошибок.');
   } else if (kind === 'assemble') {
-    plan.push('Послушайте фрагмент целиком и проследите, как паттерны следуют друг за другом.');
-    plan.push('Сыграйте медленно без остановок — особенно внимательно на стыках паттернов.');
-    if (bothHands) plan.push('Если сбиваетесь — сыграйте стык каждой рукой отдельно, затем снова вместе.');
-    plan.push('Постепенно повышайте темп до 80–100%. Цель — сыграть 3 раза подряд без ошибок.');
+    plan.push('Послушайте фрагмент целиком и проследите, как части следуют друг за другом.');
+    plan.push('Сыграйте медленно без остановок — особенно внимательно на стыках.');
+    if (bothHands) plan.push('Если стык не получается — сыграйте его каждой рукой отдельно, затем снова вместе.');
+    plan.push('Постепенно повышайте темп до 80–100%. Цель — 3 раза подряд без ошибок.');
   } else {
-    plan.push('Послушайте паттерн целиком и проследите глазами за нотами и клавишами.');
-    if (byHand.R.length) plan.push('Правая рука отдельно в медленном темпе (50–60%), пока не получится 3 раза подряд без ошибок.');
-    if (byHand.L.length) plan.push('Левая рука отдельно — так же медленно, следите за аппликатурой.');
-    if (bothHands) plan.push('Обе руки вместе, очень медленно. Лучше медленно и ровно, чем быстро с остановками.');
+    plan.push('Послушайте паттерн и проследите глазами за нотами и клавишами.');
+    if (by) plan.push(`Сыграйте ${by} медленно (50–60%), пока не получится 3 раза подряд без ошибок.`);
+    else {
+      if (byHand.R.length) plan.push('Правая рука отдельно в медленном темпе (50–60%), пока не получится 3 раза подряд без ошибок.');
+      if (byHand.L.length) plan.push('Левая рука отдельно — так же медленно, следите за аппликатурой.');
+      if (bothHands) plan.push('Обе руки вместе, очень медленно. Лучше медленно и ровно, чем быстро с остановками.');
+    }
     plan.push('Постепенно повышайте темп до 80–100%.');
   }
 

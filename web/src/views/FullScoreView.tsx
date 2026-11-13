@@ -4,8 +4,8 @@ import { StructureMap } from '../components/StructureMap';
 import { handsFor, Transport, type HandSelection } from '../components/Transport';
 import { player } from '../lib/audio';
 import { usePersistentState, usePlayerState } from '../lib/hooks';
-import { EPS } from '../lib/model';
-import type { Guide } from '../lib/piece';
+import { EPS, type Hand } from '../lib/model';
+import { blocksOfStep, type Guide } from '../lib/piece';
 import { blockOfMeasure } from '../lib/segment';
 import { quarterToSeconds } from '../lib/timing';
 
@@ -17,11 +17,12 @@ function fmtTime(sec: number) {
 export function FullScoreView(props: {
   guide: Guide;
   learned: ReadonlySet<number>;
-  lastBlock: number;
+  /** the guide step opened last (its fragments are highlighted) */
+  lastStep: number;
   onOpenBlock: (index: number) => void;
 }) {
-  const { guide, learned, lastBlock, onOpenBlock } = props;
-  const { score, blocks, families, renderXml } = guide;
+  const { guide, learned, lastStep, onOpenBlock } = props;
+  const { score, blocks, families, renderXml, steps, chunks } = guide;
   const ps = usePlayerState();
   const hasR = score.notes.some((n) => n.hand === 'R');
   const hasL = score.notes.some((n) => n.hand === 'L');
@@ -66,7 +67,14 @@ export function FullScoreView(props: {
     for (const m of score.measures) if (m.start <= pos + EPS) idx = m.index;
     return idx;
   }, [score, pos, showActive]);
-  const currentBlock = currentMeasure !== null ? blockOfMeasure(blocks, currentMeasure)?.index : lastBlock;
+  // fragments sounding now (one per hand), or those of the step opened last
+  const currentBlocks = useMemo(() => {
+    if (currentMeasure !== null) {
+      return new Set((['R', 'L'] as Hand[]).map((h) => blockOfMeasure(blocks, currentMeasure, h)?.index).filter((x): x is number => x !== undefined));
+    }
+    const st = steps[lastStep];
+    return st ? blocksOfStep(blocks, st) : new Set<number>();
+  }, [blocks, steps, currentMeasure, lastStep]);
 
   const startPlayback = useCallback(
     (startAt?: number, restart = false) => {
@@ -115,7 +123,11 @@ export function FullScoreView(props: {
   const f = tempoPct / 100;
   const totalSec = quarterToSeconds(score.tempoMap, to, f);
   const elapsedSec = quarterToSeconds(score.tempoMap, pos, f);
-  const markers = blocks.slice(1).map((b) => ({ at: b.start / to, label: `${b.label} · такт ${score.measures[b.startMeasure].number}` }));
+  // stretches for both hands (or the fragments of a one-hand piece) start at these measures
+  const markerMeasures = Array.from(new Set(chunks.length ? chunks.map((c) => c.startMeasure) : blocks.map((b) => b.startMeasure)))
+    .filter((m) => m > 0)
+    .sort((a, b) => a - b);
+  const markers = markerMeasures.map((m) => ({ at: score.measures[m].start / to, label: `такт ${score.measures[m].number}` }));
 
   return (
     <section className="full-score">
@@ -149,8 +161,8 @@ export function FullScoreView(props: {
         progress={to > 0 ? pos / to : 0}
         onSeek={(fr) => {
           const q = fr * to;
-          const b = blocks.find((x) => q >= x.start - EPS && q < x.end - EPS);
-          const target = b ? b.start : q;
+          const m = score.measures.find((x) => q >= x.start - EPS && q < x.start + x.length - EPS);
+          const target = m ? m.start : q;
           if (player.getState().playing) startPlayback(target);
           else setCursor(target);
         }}
@@ -161,12 +173,15 @@ export function FullScoreView(props: {
         score={score}
         blocks={blocks}
         families={families}
-        highlight={currentBlock !== undefined ? new Set([currentBlock]) : undefined}
+        highlight={currentBlocks}
         onBlock={onOpenBlock}
         showSummary
       />
       <div className="full-legend">
-        <span>Рамки одного цвета — один паттерн: буква без штриха — его первое появление и точные повторы, A′, A″ — вариации.</span>
+        <span>
+          Рамки вокруг верхнего нотоносца — паттерны правой руки (A, B…), вокруг нижнего — левой (a, b…). Один цвет — один паттерн,
+          штрих (A′, a′) — вариация.
+        </span>
         <label className="check">
           <input type="checkbox" checked={showDiff} onChange={(e) => setShowDiff(e.target.checked)} />
           <span className="diff-swatch" /> показывать отличия вариаций от основы
@@ -179,7 +194,7 @@ export function FullScoreView(props: {
           zoom={0.9}
           activeIds={activeIds}
           blocks={blocks}
-          currentBlock={currentBlock}
+          currentBlocks={currentBlocks}
           learned={learned}
           onBlockClick={onOpenBlock}
           diffIds={diffIds}

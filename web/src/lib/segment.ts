@@ -7,9 +7,6 @@ import { EPS, type Block, type Hand, type NoteEvent, type Score } from './model'
 
 export type BlockSizeMode = 'auto' | 1 | 2 | 4 | 8;
 
-/** Target number of notes (both hands) a beginner can comfortably learn in one go. */
-export const TARGET_NOTES = 26;
-
 export interface BoundaryInfo {
   /** strength of the boundary after measure i (larger = better place to cut) */
   strength: number;
@@ -27,7 +24,8 @@ export function measureBoundaries(score: Score): BoundaryInfo[] {
   const melodyHand: Hand = notes.some((n) => n.hand === 'R') ? 'R' : 'L';
 
   const info: BoundaryInfo[] = [];
-  let sectionStart = 0;
+  // phrase lengths are counted from the first full measure (a pickup does not count)
+  let sectionStart = measures[0]?.implicit && M > 1 ? 1 : 0;
   for (let i = 0; i < M; i++) {
     const m = measures[i];
     const next = measures[i + 1];
@@ -104,6 +102,7 @@ export function fixedRanges(bounds: BoundaryInfo[], size: number): [number, numb
   return out;
 }
 
-export function blockOfMeasure(blocks: Block[], measureIndex: number): Block | undefined {
-  return blocks.find((b) => measureIndex >= b.startMeasure && measureIndex <= b.endMeasure);
+/** The fragment of a hand (or of any hand) that contains a measure. */
+export function blockOfMeasure(blocks: Block[], measureIndex: number, hand?: Hand): Block | undefined {
+  return blocks.find((b) => (!hand || b.hand === hand) && measureIndex >= b.startMeasure && measureIndex <= b.endMeasure);
 }

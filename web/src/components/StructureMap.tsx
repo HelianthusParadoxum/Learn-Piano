@@ -1,8 +1,20 @@
-import type { Block, PatternFamily, Score } from '../lib/model';
-import { blockMeasures, similarityText, structureSummary } from '../lib/patternText';
+import type { Block, Hand, PatternFamily, Score } from '../lib/model';
+import { blockMeasures, HAND_NAME, plural, shiftText, structureSummary } from '../lib/patternText';
 import { familyColor } from './ScoreView';
 
-/** The piece as a sequence of pattern instances: A A′ B A′ … (click a fragment to open its step). */
+const HANDS: Hand[] = ['R', 'L'];
+
+function describe(b: Block, families: PatternFamily[]): string {
+  if (b.role === 'base') return 'паттерн';
+  if (b.role === 'variation') return `вариация ${families[b.family].letter}, совпадает на ${Math.round(b.similarity * 100)}%`;
+  if (b.transpose || b.steps) return `тот же рисунок ${shiftText(b)}`;
+  return 'точный повтор';
+}
+
+/**
+ * Each hand's part as a sequence of pattern instances — right hand A A′ B A′, left hand a b a b — on a
+ * common measure axis. Click a fragment to open the step where it is learned.
+ */
 export function StructureMap(props: {
   score: Score;
   blocks: Block[];
@@ -12,39 +24,61 @@ export function StructureMap(props: {
   showSummary?: boolean;
 }) {
   const { score, blocks, families, highlight, onBlock, showSummary } = props;
-  const sum = structureSummary(score, blocks, families);
+  const M = Math.max(1, score.measures.length);
+  const summary = structureSummary(blocks, families);
+  const rows = HANDS.filter((h) => blocks.some((b) => b.hand === h));
   return (
     <div className="structure">
-      <div className="structure-bar" role="list" aria-label="Структура пьесы">
-        {blocks.map((b) => {
-          const len = b.endMeasure - b.startMeasure + 1;
-          const what = b.role === 'base' ? 'паттерн' : b.role === 'variation' ? `вариация, совпадает с ${families[b.family].letter} на ${similarityText(score, b)}` : 'повтор';
-          return (
-            <button
-              key={b.index}
-              role="listitem"
-              className={`structure-seg role-${b.role} ${highlight?.has(b.index) ? 'active' : ''}`}
-              style={{ flexGrow: len, flexBasis: 0, ['--block-color' as string]: familyColor(b.family) }}
-              onClick={() => onBlock(b.index)}
-              title={`${b.label} — ${what}; ${blockMeasures(score, b)}`}
-            >
-              <span className="seg-label">{b.label}</span>
-              <span className="seg-measures">{score.measures[b.startMeasure].number}–{score.measures[b.endMeasure].number}</span>
-            </button>
-          );
-        })}
-      </div>
+      {rows.map((hand) => (
+        <div key={hand} className={`structure-row hand-${hand}`}>
+          <span className="structure-hand">{hand === 'R' ? 'Правая' : 'Левая'}</span>
+          <div className="structure-bar" role="list" aria-label={`Структура: ${HAND_NAME[hand].toLowerCase()}`}>
+            {blocks
+              .filter((b) => b.hand === hand)
+              .map((b) => {
+                const share = (b.endMeasure - b.startMeasure + 1) / M;
+                const size = share < 0.022 ? 'tiny' : share < 0.045 ? 'narrow' : '';
+                return (
+                <button
+                  key={b.index}
+                  role="listitem"
+                  className={`structure-seg role-${b.role} ${size} ${highlight?.has(b.index) ? 'active' : ''}`}
+                  style={{
+                    left: `${(b.startMeasure / M) * 100}%`,
+                    width: `${((b.endMeasure - b.startMeasure + 1) / M) * 100}%`,
+                    ['--block-color' as string]: familyColor(b.family),
+                  }}
+                  onClick={() => onBlock(b.index)}
+                  title={`${b.label} — ${describe(b, families)}; ${blockMeasures(score, b)}`}
+                >
+                  <span className="seg-label">{b.label}</span>
+                  {!size && (
+                    <span className="seg-measures">
+                      {score.measures[b.startMeasure].number}–{score.measures[b.endMeasure].number}
+                    </span>
+                  )}
+                </button>
+                );
+              })}
+          </div>
+        </div>
+      ))}
       {showSummary && (
         <div className="structure-summary">
-          Пьеса: <b>{blocks.map((b) => b.label).join(' ')}</b> · паттернов: {sum.patterns}
-          {sum.variations ? `, вариаций: ${sum.variations}` : ''}.{' '}
-          {sum.learn < sum.total ? (
-            <>
-              Нового материала — <b>{sum.learn} из {sum.total} тактов</b>, остальное повторяется.
-            </>
-          ) : (
-            <>Повторов почти нет — пьеса разучивается фрагмент за фрагментом.</>
-          )}
+          {summary.map((h) => (
+            <div key={h.hand}>
+              <b className={`t-${h.hand}`}>{HAND_NAME[h.hand]}:</b> {h.patterns} {plural(h.patterns, 'паттерн', 'паттерна', 'паттернов')}
+              {h.variations ? `, вариаций: ${h.variations}` : ''}
+              {h.learn < h.measures ? (
+                <>
+                  {' '}
+                  · нового материала <b>{h.learn} из {h.measures} тактов</b>
+                </>
+              ) : (
+                ' · повторов почти нет'
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

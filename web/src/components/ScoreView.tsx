@@ -13,8 +13,10 @@ export interface ScoreViewProps {
   activeIds?: ReadonlySet<number>;
   /** ids of notes to mark as "selected" (e.g. fingering editor) */
   selectedId?: number | null;
+  /** fragments to frame: each is drawn around the staff of its hand */
   blocks?: Block[];
-  currentBlock?: number;
+  /** fragments sounding now (highlighted frames) */
+  currentBlocks?: ReadonlySet<number>;
   learned?: ReadonlySet<number>;
   onBlockClick?: (index: number) => void;
   onNoteClick?: (noteId: number, anchor: DOMRect) => void;
@@ -29,6 +31,8 @@ export interface ScoreViewProps {
   markIds?: ReadonlySet<number>;
   /** notes to show faded (unchanged notes of a variation) */
   dimIds?: ReadonlySet<number>;
+  /** a step for one hand: the other hand's staff is faded */
+  focusHand?: Hand | null;
 }
 
 interface Overlay {
@@ -54,8 +58,8 @@ export const familyColor = (family: number) => FAMILY_COLORS[((family % FAMILY_C
 
 export function ScoreView(props: ScoreViewProps) {
   const {
-    xml, score, range, zoom = 1, activeIds, selectedId, blocks, currentBlock, learned,
-    onBlockClick, onNoteClick, followMeasure, compact, diffIds, rhythmIds, markIds, dimIds,
+    xml, score, range, zoom = 1, activeIds, selectedId, blocks, currentBlocks, learned,
+    onBlockClick, onNoteClick, followMeasure, compact, diffIds, rhythmIds, markIds, dimIds, focusHand,
   } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -68,6 +72,8 @@ export function ScoreView(props: ScoreViewProps) {
   const elToNote = useRef(new Map<Element, number>());
   const highlighted = useRef(new Set<Element>());
   const measureBoxes = useRef(new Map<number, MeasureBox>());
+  /** band of each staff in each measure, keyed "measure|staff" (bands of one system do not overlap) */
+  const staffBoxes = useRef(new Map<string, MeasureBox>());
   const [overlays, setOverlays] = useState<Overlay[]>([]);
   const [width, setWidth] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -192,6 +198,7 @@ export function ScoreView(props: ScoreViewProps) {
     const groups = new Map<number, Element[]>();
     const back = new Map<Element, number>();
     const boxes = new Map<number, MeasureBox>();
+    const bands = new Map<string, MeasureBox>();
     const unit = 10 * osmd.Zoom;
     const host = hostRef.current!;
     const wrap = wrapRef.current!;
@@ -210,6 +217,7 @@ export function ScoreView(props: ScoreViewProps) {
       let bottom = -Infinity;
       let left = Infinity;
       let right = -Infinity;
+      const staves: { staff: number; x: number; right: number; y: number }[] = [];
       for (const gm of gms) {
         const ps = gm.PositionAndShape;
         if (!ps || !gm.ParentMusicSystem) continue;
@@ -226,7 +234,23 @@ export function ScoreView(props: ScoreViewProps) {
         right = Math.max(right, ps.AbsolutePosition.x + ps.Size.width);
         top = Math.min(top, y);
         bottom = Math.max(bottom, y + 4);
+        staves.push({ staff: gm.ParentStaff.idInMusicSheet, x, right: ps.AbsolutePosition.x + ps.Size.width, y });
       }
+      // each staff gets a band: from halfway to the staff above (or room for fingering) to halfway to the one below
+      staves.sort((a, b) => a.y - b.y);
+      staves.forEach((st, k) => {
+        const above = staves[k - 1];
+        const below = staves[k + 1];
+        const bandTop = above ? (above.y + 4 + st.y) / 2 : st.y - 3.2;
+        const bandBottom = below ? (st.y + 4 + below.y) / 2 : st.y + 4 + 3.6;
+        bands.set(`${mIdx}|${st.staff}`, {
+          left: offX + st.x * unit,
+          top: offY + bandTop * unit,
+          width: (st.right - st.x) * unit,
+          height: (bandBottom - bandTop) * unit,
+          system: gms[0].ParentMusicSystem,
+        });
+      });
       if (Number.isFinite(left)) {
         boxes.set(mIdx, {
           left: offX + left * unit,
@@ -286,6 +310,7 @@ export function ScoreView(props: ScoreViewProps) {
     groupEls.current = groups;
     elToNote.current = back;
     measureBoxes.current = boxes;
+    staffBoxes.current = bands;
     // colour fingering digits by hand: tag every staff line group with the hand that plays it
     const handByStaff = new Map(score.staves.map((st) => [st.staffIndex, st.hand]));
     host.querySelectorAll('g.osmd-staffline').forEach((g) => {
@@ -304,6 +329,18 @@ export function ScoreView(props: ScoreViewProps) {
       return;
     }
     const out: Overlay[] = [];
+    const stavesOf = (hand: Hand) => score.staves.filter((st) => st.hand === hand).map((st) => st.staffIndex);
+    const boxOf = (m: number, hand: Hand): MeasureBox | undefined => {
+      const list = stavesOf(hand)
+        .map((st) => staffBoxes.current.get(`${m}|${st}`))
+        .filter((x): x is MeasureBox => !!x);
+      if (!list.length) return undefined;
+      const left = Math.min(...list.map((x) => x.left));
+      const top = Math.min(...list.map((x) => x.top));
+      const right = Math.max(...list.map((x) => x.left + x.width));
+      const bottom = Math.max(...list.map((x) => x.top + x.height));
+      return { left, top, width: right - left, height: bottom - top, system: list[0].system };
+    };
     for (const b of blocks) {
       let group: MeasureBox[] = [];
       let first = true;
@@ -318,7 +355,7 @@ export function ScoreView(props: ScoreViewProps) {
         group = [];
       };
       for (let m = b.startMeasure; m <= b.endMeasure; m++) {
-        const box = measureBoxes.current.get(m);
+        const box = boxOf(m, b.hand);
         if (!box) continue;
         if (group.length && group[group.length - 1].system !== box.system) flush();
         group.push(box);
@@ -420,21 +457,22 @@ export function ScoreView(props: ScoreViewProps) {
     >
       {status === 'loading' && <div className="score-loading">Рисую ноты…</div>}
       {status === 'error' && <div className="score-error">Не удалось отрисовать ноты: {error}</div>}
-      <div ref={hostRef} className="score-host" />
+      <div ref={hostRef} className={`score-host ${focusHand ? `focus-${focusHand}` : ''}`} />
       {overlays.map((o, i) => {
         const b = blocks![o.block];
         const color = familyColor(b.family);
-        const isCurrent = currentBlock === o.block;
+        const isCurrent = !!currentBlocks?.has(o.block);
         const isLearned = learned?.has(o.block);
+        const hand = b.hand === 'R' ? 'правая рука' : 'левая рука';
         const what =
-          b.role === 'base' ? 'паттерн' : b.role === 'variation' ? `вариация (совпадает на ${Math.round(b.similarity * 100)}%)` : 'повтор';
+          b.role === 'base' ? 'паттерн' : b.role === 'variation' ? `вариация (совпадает на ${Math.round(b.similarity * 100)}%)` : b.transpose || b.steps ? 'тот же рисунок от другой ноты' : 'повтор';
         return (
           <button
             key={i}
             type="button"
-            className={`block-overlay role-${b.role} ${isCurrent ? 'current' : ''} ${isLearned ? 'learned' : ''}`}
+            className={`block-overlay hand-${b.hand} role-${b.role} ${isCurrent ? 'current' : ''} ${isLearned ? 'learned' : ''}`}
             style={{ left: o.left, top: o.top, width: o.width, height: o.height, ['--block-color' as string]: color }}
-            title={`${b.label} — ${what}, такты ${score.measures[b.startMeasure].number}–${score.measures[b.endMeasure].number}. Нажмите, чтобы открыть шаг гайда`}
+            title={`${b.label} (${hand}) — ${what}, такты ${score.measures[b.startMeasure].number}–${score.measures[b.endMeasure].number}. Нажмите, чтобы открыть шаг гайда`}
             onClick={(e) => {
               e.stopPropagation();
               onBlockClick?.(o.block);

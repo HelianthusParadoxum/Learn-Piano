@@ -25,10 +25,13 @@ describe('pickup measures and dense short bars', () => {
     const score = parseScore(pieceWithPickup(16));
     expect(score.measures[0].implicit).toBe(true);
     const { blocks } = analyzePatterns(score, 'auto');
-    expect(blocks[0].startMeasure).toBe(0);
-    expect(blocks[0].endMeasure).toBeGreaterThanOrEqual(1);
-    // dense 2/4 music should not degrade into one block per measure
-    expect(blocks.length).toBeLessThanOrEqual(10);
+    for (const hand of ['R', 'L'] as const) {
+      const mine = blocks.filter((b) => b.hand === hand);
+      expect(mine[0].startMeasure).toBe(0);
+      expect(mine[0].endMeasure).toBeGreaterThanOrEqual(1);
+      // dense 2/4 music should not degrade into one block per measure
+      expect(mine.length).toBeLessThanOrEqual(10);
+    }
     for (const mode of [1, 2, 4] as const) {
       const fixed = analyzePatterns(score, mode).blocks;
       expect(fixed[0].endMeasure).toBeGreaterThanOrEqual(1);

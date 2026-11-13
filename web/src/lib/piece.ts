@@ -1,33 +1,70 @@
 /** End-to-end processing of a MusicXML document into a learning guide. */
 import { analyzeSpan, type BlockAnalysis, type Span } from './analysis';
 import { computeFingering } from './fingering';
-import { DEFAULT_SETTINGS, type Block, type GuideStep, type PatternFamily, type PieceSettings, type Score } from './model';
+import { DEFAULT_SETTINGS, type Block, type GuideStep, type Hand, type PatternFamily, type PieceSettings, type Score } from './model';
 import { parseScore, serializeXml, withFingerings } from './musicxml';
-import { analyzePatterns, buildSteps, equalNotePairs } from './patterns';
+import { analyzePatterns, buildSteps, equalNotePairs, type Chunk } from './patterns';
 
 export interface Guide {
   score: Score;
-  /** fragments of the piece in order, labelled with their pattern (A, A′, B…) */
+  /** fragments of each hand, labelled with their pattern (right hand A, A′, B…; left hand a, a′, b…) */
   blocks: Block[];
   families: PatternFamily[];
-  /** learning order: patterns, their variations, then assembly */
+  /** learning order: each hand's patterns and variations, then both hands together */
   steps: GuideStep[];
+  /** parts of the piece learned one after another ([first, last] measure) */
+  parts: [number, number][];
+  /** stretches played with both hands */
+  chunks: Chunk[];
   /** one analysis per step */
   analyses: BlockAnalysis[];
   /** MusicXML with fingering numbers, ready for rendering. */
   renderXml: string;
 }
 
-export function stepSpan(blocks: Block[], step: GuideStep): Span {
-  const a = step.kind === 'assemble' ? blocks[step.fromBlock] : blocks[step.block];
-  const b = step.kind === 'assemble' ? blocks[step.toBlock] : blocks[step.block];
-  return { startMeasure: a.startMeasure, endMeasure: b.endMeasure, start: a.start, end: b.end };
+/** The hand a step is about (null: both hands). */
+export function stepHand(blocks: Block[], step: GuideStep): Hand | null {
+  return step.kind === 'pattern' || step.kind === 'variation' ? blocks[step.block].hand : null;
+}
+
+/** The last block a pattern / variation step covers (a sequence is learned in one go). */
+export function stepLastBlock(blocks: Block[], step: GuideStep): Block | null {
+  if (step.kind !== 'pattern' && step.kind !== 'variation') return null;
+  const b = blocks[step.block];
+  return b.sequenceEnd !== undefined ? blocks[b.sequenceEnd] : b;
+}
+
+export function stepSpan(score: Score, blocks: Block[], step: GuideStep): Span {
+  if (step.kind === 'pattern' || step.kind === 'variation') {
+    const a = blocks[step.block];
+    const b = stepLastBlock(blocks, step)!;
+    return { startMeasure: a.startMeasure, endMeasure: b.endMeasure, start: a.start, end: b.end };
+  }
+  const last = score.measures[step.endMeasure];
+  return {
+    startMeasure: step.startMeasure,
+    endMeasure: step.endMeasure,
+    start: score.measures[step.startMeasure].start,
+    end: last.start + last.length,
+  };
+}
+
+/** Fragments a step is about: the block (with its sequence), or every fragment inside a two-hand stretch. */
+export function blocksOfStep(blocks: Block[], step: GuideStep): Set<number> {
+  if (step.kind === 'pattern' || step.kind === 'variation') {
+    const last = stepLastBlock(blocks, step)!;
+    const out = new Set<number>();
+    for (let k = step.block; k <= last.index; k++) out.add(k);
+    return out;
+  }
+  return new Set(blocks.filter((b) => b.endMeasure >= step.startMeasure && b.startMeasure <= step.endMeasure).map((b) => b.index));
 }
 
 /** Stable key of a step (for "learned" marks). */
-export function stepKey(blocks: Block[], step: GuideStep): string {
-  const s = stepSpan(blocks, step);
-  return `${step.kind === 'assemble' ? 'a' : 'p'}:${s.startMeasure}-${s.endMeasure}`;
+export function stepKey(score: Score, blocks: Block[], step: GuideStep): string {
+  const s = stepSpan(score, blocks, step);
+  const prefix = step.kind === 'pattern' || step.kind === 'variation' ? blocks[step.block].hand : step.kind === 'together' ? 't' : 'a';
+  return `${prefix}:${s.startMeasure}-${s.endMeasure}`;
 }
 
 export function buildGuide(score: Score, settings: PieceSettings, overrides: Record<string, number> = {}): Guide {
@@ -41,10 +78,10 @@ export function buildGuide(score: Score, settings: PieceSettings, overrides: Rec
     if (f && score.notes[id].finger !== f) patternFingers[score.notes[id].key] = f;
   }
   if (Object.keys(patternFingers).length) computeFingering(score.notes, { ...fingerOpts, overrides, patternFingers });
-  const steps = buildSteps(score, blocks, families);
-  const analyses = steps.map((st, i) => analyzeSpan(score, stepSpan(blocks, st), st.kind, i === 0));
+  const { steps, parts, chunks } = buildSteps(score, blocks, families);
+  const analyses = steps.map((st, i) => analyzeSpan(score, stepSpan(score, blocks, st), st.kind, i === 0, stepHand(blocks, st) ?? undefined));
   const renderXml = serializeXml(withFingerings(score.doc, score.notes));
-  return { score, blocks, families, steps, analyses, renderXml };
+  return { score, blocks, families, steps, parts, chunks, analyses, renderXml };
 }
 
 export function guideFromXml(

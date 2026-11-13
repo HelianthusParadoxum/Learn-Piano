@@ -32,6 +32,8 @@ export interface TransportProps {
   hasL: boolean;
   otherQuiet: boolean;
   onOtherQuiet: (v: boolean) => void;
+  /** a step for one hand: the hand cannot be switched, the other hand can sound quietly */
+  fixedHand?: Hand | null;
   onStepPrev?: () => void;
   onStepNext?: () => void;
   withPrev?: boolean;
@@ -72,21 +74,27 @@ export function Transport(p: TransportProps) {
             <button className="btn small" onClick={p.onStepNext}>шаг ▶</button>
           </div>
         )}
-        <div className="seg" role="group" aria-label="Руки">
-          <button className={p.handSel === 'both' ? 'on' : ''} onClick={() => p.onHandSel('both')} disabled={!p.hasR || !p.hasL}>
-            Обе руки
-          </button>
-          <button className={`r ${p.handSel === 'R' ? 'on' : ''}`} onClick={() => p.onHandSel('R')} disabled={!p.hasR}>
-            Правая
-          </button>
-          <button className={`l ${p.handSel === 'L' ? 'on' : ''}`} onClick={() => p.onHandSel('L')} disabled={!p.hasL}>
-            Левая
-          </button>
-        </div>
+        {p.fixedHand ? (
+          <span className={`hand-fixed hand-${p.fixedHand}`} title="Этот шаг разучивается одной рукой">
+            {p.fixedHand === 'R' ? 'Правая рука' : 'Левая рука'}
+          </span>
+        ) : (
+          <div className="seg" role="group" aria-label="Руки">
+            <button className={p.handSel === 'both' ? 'on' : ''} onClick={() => p.onHandSel('both')} disabled={!p.hasR || !p.hasL}>
+              Обе руки
+            </button>
+            <button className={`r ${p.handSel === 'R' ? 'on' : ''}`} onClick={() => p.onHandSel('R')} disabled={!p.hasR}>
+              Правая
+            </button>
+            <button className={`l ${p.handSel === 'L' ? 'on' : ''}`} onClick={() => p.onHandSel('L')} disabled={!p.hasL}>
+              Левая
+            </button>
+          </div>
+        )}
         {p.handSel !== 'both' && p.hasR && p.hasL && (
           <label className="check" title="Вторая рука звучит тихо — так легче держать ритм">
             <input type="checkbox" checked={p.otherQuiet} onChange={(e) => p.onOtherQuiet(e.target.checked)} />
-            вторая рука тихо
+            {p.fixedHand ? `${p.fixedHand === 'R' ? 'левая' : 'правая'} рука тихо` : 'вторая рука тихо'}
           </label>
         )}
       </div>

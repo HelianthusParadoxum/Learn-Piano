@@ -6,6 +6,7 @@ import type { PieceSettings, Score } from '../lib/model';
 import { parseScore } from '../lib/musicxml';
 import { keyName } from '../lib/noteNames';
 import { stepOfBlock } from '../lib/patterns';
+import { plural } from '../lib/patternText';
 import { buildGuide, stepKey, type Guide } from '../lib/piece';
 import { getPiece, savePiece, type PieceRecord } from '../lib/storage';
 import { FullScoreView } from '../views/FullScoreView';
@@ -61,7 +62,7 @@ export function PiecePage({ route }: { route: Route }) {
   /** learned steps (indices) */
   const learned = useMemo(() => {
     const set = new Set<number>();
-    if (rec && guide) guide.steps.forEach((st, i) => rec.learned.includes(stepKey(guide.blocks, st)) && set.add(i));
+    if (rec && guide) guide.steps.forEach((st, i) => rec.learned.includes(stepKey(guide.score, guide.blocks, st)) && set.add(i));
     return set;
   }, [rec, guide]);
   /** blocks whose learning step is done (for the full score map) */
@@ -88,11 +89,16 @@ export function PiecePage({ route }: { route: Route }) {
   }
 
   const { score, steps, families } = guide;
+  const countOf = (hand: 'R' | 'L') => families.filter((f) => f.hand === hand).length;
+  const patternChip = (['R', 'L'] as const)
+    .filter((h) => countOf(h) > 0)
+    .map((h) => `${h === 'R' ? 'правая' : 'левая'}: ${countOf(h)} ${plural(countOf(h), 'паттерн', 'паттерна', 'паттернов')}`)
+    .join(' · ');
   const tab = route.tab ?? 'guide';
   const step = Math.min(Math.max(1, route.step ?? 1), Math.max(1, steps.length));
   const firstMeasure = score.measures[0];
   const toggleLearned = (stepIndex: number) => {
-    const k = stepKey(guide.blocks, steps[stepIndex]);
+    const k = stepKey(score, guide.blocks, steps[stepIndex]);
     update({ learned: rec.learned.includes(k) ? rec.learned.filter((x) => x !== k) : [...rec.learned, k] });
   };
   const setOverride = (key: string, finger: number | null) => {
@@ -116,8 +122,8 @@ export function PiecePage({ route }: { route: Route }) {
             </span>
             <span className="chip">♩ = {Math.round(score.tempoMap[0].bpm)}{score.tempoFromFile ? '' : ' (по умолчанию)'}</span>
             <span className="chip">{score.measures.length} тактов</span>
-            <span className="chip">
-              {families.length} {families.length === 1 ? 'паттерн' : families.length < 5 ? 'паттерна' : 'паттернов'} · {steps.length} шагов
+            <span className="chip" title="Паттерны правой и левой руки разбираются отдельно">
+              {patternChip} · {steps.length} {plural(steps.length, 'шаг', 'шага', 'шагов')}
             </span>
           </div>
         </div>
@@ -189,7 +195,7 @@ export function PiecePage({ route }: { route: Route }) {
         <FullScoreView
           guide={guide}
           learned={learnedBlocks}
-          lastBlock={rec.lastBlock ?? 0}
+          lastStep={rec.lastBlock ?? 0}
           onOpenBlock={(i) => {
             const s = stepOfBlock(steps, guide.blocks, i);
             update({ lastBlock: s });
