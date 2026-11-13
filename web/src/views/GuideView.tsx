@@ -25,6 +25,8 @@ import {
   togetherLabels,
   transpositionText,
 } from '../lib/patternText';
+import { localMoves } from '../lib/fingering';
+import type { NoteEdit } from '../lib/noteEdit';
 import { stepOfBlock } from '../lib/patterns';
 import { blocksOfStep, stepHand, stepLastBlock, stepSpan, type Guide } from '../lib/piece';
 import { quarterToSeconds } from '../lib/timing';
@@ -40,6 +42,10 @@ interface Props {
   onStep: (step: number) => void;
   onToggleLearned: (stepIndex: number) => void;
   onOverride: (key: string, finger: number | null) => void;
+  /** fix a note of the piece; returns the note to keep selected (null: it is gone) and what changed */
+  onEditNote?: (noteId: number, edit: NoteEdit) => { select: number | null; message: string } | null;
+  canUndoEdit?: boolean;
+  onUndoEdit?: () => void;
 }
 
 const HANDS: Hand[] = ['R', 'L'];
@@ -188,7 +194,7 @@ function previousSpan(guide: Guide, step: GuideStep): { start: number; startMeas
 }
 
 function StepView(props: Props & { stepIndex: number }) {
-  const { pieceId, guide, stepIndex, learnedSteps, settings, onStep, onToggleLearned, onOverride, overrides } = props;
+  const { pieceId, guide, stepIndex, learnedSteps, settings, onStep, onToggleLearned, onOverride, overrides, onEditNote, canUndoEdit, onUndoEdit } = props;
   const { score, blocks, families, steps, analyses, renderXml } = guide;
   const step = steps[stepIndex];
   const analysis = analyses[stepIndex];
@@ -213,7 +219,9 @@ function StepView(props: Props & { stepIndex: number }) {
   const [dimSame, setDimSame] = usePersistentState('dimSame', true);
   const [withPrev, setWithPrev] = useState(false);
   const [cursor, setCursor] = useState<number | null>(null);
-  const [picker, setPicker] = useState<{ noteId: number; rect: DOMRect } | null>(null);
+  // the clicked note, found by its place in the MusicXML: it stays selected while it is being fixed
+  const [picker, setPicker] = useState<{ xmlIndex: number; rect: DOMRect } | null>(null);
+  const [lastEdit, setLastEdit] = useState('');
   const [planDone, setPlanDone] = useState<Set<number>>(new Set());
 
   // a step for one hand plays that hand; two-hand steps follow the player's choice
@@ -243,6 +251,8 @@ function StepView(props: Props & { stepIndex: number }) {
   const pos = playing ? ps.position ?? from : cursor ?? from;
 
   const rangeNotes = useMemo(() => notesBetween(score.notes, from, to), [score, from, to]);
+  // finger move arrows of this stretch: the first press of each finger here is the starting position
+  const moves = useMemo(() => localMoves(score.notes, from, to), [score, from, to]);
   // in "compare" playback the base pattern sounds first
   const baseNotes = useMemo(() => (base ? notesBetween(score.notes, base.start, base.end) : []), [score, base]);
 
@@ -259,6 +269,7 @@ function StepView(props: Props & { stepIndex: number }) {
     }
     return set.size ? set : undefined;
   }, [score, firstMeasure, span.endMeasure, from, to, isVariation, dimSame, rangeNotes, block, hand, diffIds, rhythmIds]);
+  const baseMoves = useMemo(() => (base ? localMoves(score.notes, base.start, base.end) : undefined), [score, base]);
   const baseDimIds = useMemo(
     () => (base ? new Set(outsideNotes(score.notes, base.startMeasure, base.endMeasure, base.start, base.end)) : undefined),
     [score, base],
@@ -290,9 +301,9 @@ function StepView(props: Props & { stepIndex: number }) {
   const activeIds = useMemo(() => new Set(active.map((n) => n.id)), [active]);
   const activeKeys = useMemo(() => {
     const m = new Map<number, KeyMark>();
-    for (const n of active) m.set(n.midi, { hand: n.hand, finger: n.finger, diff: diffIds.has(n.id), move: n.fingerMove });
+    for (const n of active) m.set(n.midi, { hand: n.hand, finger: n.finger, diff: diffIds.has(n.id), move: moves.get(n.id) });
     return m;
-  }, [active, diffIds]);
+  }, [active, diffIds, moves]);
   const marks = useMemo(() => {
     const m = new Map<number, KeyMark>();
     for (const n of rangeNotes) if (hands[n.hand!] !== 'off' && !m.has(n.midi)) m.set(n.midi, { hand: n.hand });
@@ -427,7 +438,7 @@ function StepView(props: Props & { stepIndex: number }) {
   const progress = to > from ? Math.min(1, Math.max(0, (shownPos - from) / (to - from))) : 0;
   const windowQ = Math.min(12, Math.max(4, (to - from) / 2));
   const isLearned = learnedSteps.has(stepIndex);
-  const pickerNote = picker ? score.notes[picker.noteId] : null;
+  const pickerNote = picker ? score.notes.find((n) => n.xmlIndex === picker.xmlIndex) ?? null : null;
   const userOverrides = Object.keys(overrides).length;
   const comparing = playing && !!base && pos < block!.start - EPS;
   const markers = withPrev && prev ? [{ at: (span.start - from) / (to - from), label: `начало ${prev.label}` }] : undefined;
@@ -445,7 +456,7 @@ function StepView(props: Props & { stepIndex: number }) {
   const pianoHint = (
     <>
       Цифры — пальцы{hand ? '' : <>: <b className="t-R">синие</b> — правая рука, <b className="t-L">оранжевые</b> — левая</>} (1 — большой … 5 —
-      мизинец); <b>3→</b> / <b>3←</b> — палец встаёт на другую клавишу, чем в прошлый раз (правее / левее). Нажмите на ноту,
+      мизинец); <b>3›</b> / <b>3‹</b> — палец встаёт на другую клавишу, чем в прошлый раз (правее / левее). Нажмите на ноту,
       чтобы поменять палец.
       {userOverrides > 0 && ` Изменено вами: ${userOverrides}.`}
     </>
@@ -525,6 +536,7 @@ function StepView(props: Props & { stepIndex: number }) {
             markIds={markIds}
             dimIds={baseDimIds}
             focusHand={hand}
+            moveMarks={baseMoves}
           />
         </div>
       )}
@@ -562,14 +574,18 @@ function StepView(props: Props & { stepIndex: number }) {
           range={[firstMeasure, span.endMeasure]}
           zoom={1.05}
           activeIds={activeIds}
-          selectedId={picker?.noteId ?? null}
+          selectedId={pickerNote?.id ?? null}
           diffIds={isVariation ? diffIds : undefined}
           rhythmIds={isVariation ? rhythmIds : undefined}
           dimIds={dimIds}
           focusHand={hand}
+          moveMarks={moves}
           onNoteClick={(noteId, rect) => {
             const n = score.notes[noteId];
-            if (n?.hand) setPicker({ noteId, rect });
+            if (n?.hand) {
+              setLastEdit('');
+              setPicker({ xmlIndex: n.xmlIndex, rect });
+            }
           }}
         />
       </div>
@@ -657,6 +673,7 @@ function StepView(props: Props & { stepIndex: number }) {
               rangeEnd={to}
               height={190}
               diffIds={isVariation ? diffIds : undefined}
+              moves={moves}
             />
             <Keyboard
               range={kbRange}
@@ -820,6 +837,23 @@ function StepView(props: Props & { stepIndex: number }) {
             setPicker(null);
           }}
           onClose={() => setPicker(null)}
+          onEdit={
+            onEditNote
+              ? (edit) => {
+                  const r = onEditNote(pickerNote.id, edit);
+                  if (!r) return;
+                  setLastEdit(r.message);
+                  if (r.select === null) setPicker(null);
+                  else setPicker({ ...picker, xmlIndex: r.select });
+                }
+              : undefined
+          }
+          canUndo={canUndoEdit}
+          onUndo={() => {
+            onUndoEdit?.();
+            setLastEdit('Последняя правка отменена.');
+          }}
+          lastEdit={lastEdit}
         />
       )}
     </section>

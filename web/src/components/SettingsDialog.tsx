@@ -11,9 +11,11 @@ export function SettingsDialog(props: {
   onClose: () => void;
   onChange: (s: PieceSettings) => void;
   onResetOverrides: () => void;
+  /** undo all note fixes made in the app (absent: there are none) */
+  onResetNotes?: () => void;
   onRename: (title: string) => void;
 }) {
-  const { rec, guide, onClose, onChange, onResetOverrides, onRename } = props;
+  const { rec, guide, onClose, onChange, onResetOverrides, onRename, onResetNotes } = props;
   const s = rec.settings;
   const [title, setTitle] = useState(rec.title);
   const overrides = Object.keys(rec.overrides).length;
@@ -132,18 +134,33 @@ export function SettingsDialog(props: {
         </div>
 
         <div className="field">
+          <span>Ноты</span>
+          <small className="muted edits-note">
+            Если нота распознана неверно, нажмите на неё в гайде и исправьте: ▲ ▼, знаки ♭ ♮ ♯, удалить ноту или добавить ноту в
+            аккорд. {rec.noteEdits ? `Сейчас исправлено нот: ${rec.noteEdits}.` : ''}
+          </small>
+          {onResetNotes && (
+            <div className="row-actions">
+              <button className="btn outline small" onClick={onResetNotes}>
+                Вернуть распознанные ноты (отменить все правки)
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="field">
           <span>Экспорт</span>
           <div className="row-actions">
             <button className="btn outline small" onClick={() => void download(guide.exportXml, `${safeName}.musicxml`, 'application/vnd.recordare.musicxml+xml')}>
               MusicXML с аппликатурой
             </button>
-            <button className="btn outline small" onClick={() => void download(rec.musicXml, `${safeName} (распознано).musicxml`, 'application/vnd.recordare.musicxml+xml')}>
-              Исходный MusicXML
+            <button className="btn outline small" onClick={() => void download(rec.musicXml, `${safeName} (ноты).musicxml`, 'application/vnd.recordare.musicxml+xml')}>
+              {rec.noteEdits ? 'MusicXML нот (с вашими правками)' : 'Исходный MusicXML'}
             </button>
           </div>
           {exportNote && <small className="export-note">{exportNote}</small>}
           <small className="muted">
-            Если распознавание ошиблось, исправьте MusicXML в MuseScore и загрузите его снова — гайд пересоберётся.
+            Ритм и пропущенные ноты удобнее исправлять в MuseScore: экспортируйте MusicXML, исправьте и загрузите снова.
           </small>
         </div>
       </div>

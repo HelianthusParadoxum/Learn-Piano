@@ -9,8 +9,12 @@ export interface PieceRecord {
   updatedAt: number;
   sourceName: string;
   sourceType: 'pdf' | 'musicxml' | 'example' | 'image';
-  /** Original MusicXML (recognized or uploaded), without generated fingering. */
+  /** MusicXML of the piece (recognized or uploaded, with the user's note fixes), without generated fingering. */
   musicXml: string;
+  /** The recognized MusicXML before the first note fix (to undo all fixes). */
+  recognizedXml?: string;
+  /** Number of note fixes made in the app. */
+  noteEdits?: number;
   pdf?: Blob;
   /** Rendered pages of the original (artifact edition: a PDF cannot be shown in the sandboxed page). */
   pages?: Blob[];

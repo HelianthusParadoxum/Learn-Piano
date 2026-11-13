@@ -1,5 +1,5 @@
 /** Builds human-readable learning hints for a block. */
-import { isBlackKey, keyPosition } from './fingering';
+import { isBlackKey, keyPosition, localMoves } from './fingering';
 import { EPS, type Hand, type NoteEvent, type Score } from './model';
 import {
   FINGER_NAMES,
@@ -191,12 +191,14 @@ export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern
     }
   }
 
-  // fingers placed on another key than last time (marked with arrows in the notes)
-  const moved = inBlock.filter((n) => n.fingerMove).length;
+  // fingers placed on another key than last time (marked with arrows in the notes); the first press
+  // of each finger in this stretch is the starting position
+  const local = localMoves(score.notes, block.start, block.end);
+  const moved = inBlock.filter((n) => local.has(n.id)).length;
   if (moved) {
     tips.push({
       kind: 'position',
-      text: `Стрелка после номера пальца (3→, 3←) — палец встаёт на другую клавишу, чем в прошлый раз (правее или левее): здесь таких мест ${moved}. Посмотрите на них заранее — там рука смещается или палец переставляется.`,
+      text: `Уголок после номера пальца (3›, 3‹) — палец встаёт на другую клавишу, чем в прошлый раз (правее или левее): здесь таких мест ${moved}. Посмотрите на них заранее — там рука смещается или палец переставляется.`,
     });
   }
 

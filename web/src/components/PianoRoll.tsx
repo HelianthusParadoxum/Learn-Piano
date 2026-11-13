@@ -23,8 +23,10 @@ export function PianoRoll(props: {
   height?: number;
   /** notes that differ from the base pattern */
   diffIds?: ReadonlySet<number>;
+  /** finger moves to mark (default: the moves in the whole piece) */
+  moves?: ReadonlyMap<number, 1 | -1>;
 }) {
-  const { notes, range, position, windowQ, hands, measures, rangeEnd, height = 200, diffIds } = props;
+  const { notes, range, position, windowQ, hands, measures, rangeEnd, height = 200, diffIds, moves } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef({ w: 0, h: height });
 
@@ -134,10 +136,10 @@ export function PianoRoll(props: {
       if (n.finger && bottom - top > 12) {
         ctx.fillStyle = sounding || black ? '#fff' : strong;
         const y = Math.min(bottom - 9, h - 9);
-        const arrow = moveArrow(n.fingerMove);
+        const arrow = moveArrow(moves ? moves.get(n.id) : n.fingerMove);
         if (!arrow) ctx.fillText(String(n.finger), cx, y);
         else {
-          // "3→": the finger, then where it goes; the arrow is raised to the middle of the digit
+          // "3›": the finger, then where it goes; the chevron is raised to the middle of the digit
           const digit = String(n.finger);
           const wd = ctx.measureText(digit).width;
           const wa = ctx.measureText(arrow).width;

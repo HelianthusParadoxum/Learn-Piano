@@ -33,6 +33,11 @@ export interface ScoreViewProps {
   dimIds?: ReadonlySet<number>;
   /** a step for one hand: the other hand's staff is faded */
   focusHand?: Hand | null;
+  /**
+   * Finger move arrows to show (note id → direction). Default: every move in the whole piece. A step
+   * passes the moves of its own stretch: the first press of each finger there is the starting position.
+   */
+  moveMarks?: ReadonlyMap<number, 1 | -1>;
 }
 
 interface Overlay {
@@ -59,7 +64,7 @@ export const familyColor = (family: number) => FAMILY_COLORS[((family % FAMILY_C
 export function ScoreView(props: ScoreViewProps) {
   const {
     xml, score, range, zoom = 1, activeIds, selectedId, blocks, currentBlocks, learned,
-    onBlockClick, onNoteClick, followMeasure, compact, diffIds, rhythmIds, markIds, dimIds, focusHand,
+    onBlockClick, onNoteClick, followMeasure, compact, diffIds, rhythmIds, markIds, dimIds, focusHand, moveMarks,
   } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -69,6 +74,8 @@ export function ScoreView(props: ScoreViewProps) {
   const version = useRef(0);
   const noteEls = useRef(new Map<number, Element[]>());
   const groupEls = useRef(new Map<number, Element[]>());
+  /** fingering label <text> elements of each note */
+  const fingerTexts = useRef(new Map<number, Element[]>());
   const elToNote = useRef(new Map<Element, number>());
   const highlighted = useRef(new Set<Element>());
   const measureBoxes = useRef(new Map<number, MeasureBox>());
@@ -198,6 +205,7 @@ export function ScoreView(props: ScoreViewProps) {
     }
     const notes = new Map<number, Element[]>();
     const groups = new Map<number, Element[]>();
+    const fingers = new Map<number, Element[]>();
     const back = new Map<Element, number>();
     const boxes = new Map<number, MeasureBox>();
     const bands = new Map<string, MeasureBox>();
@@ -276,6 +284,17 @@ export function ScoreView(props: ScoreViewProps) {
       for (const gm of gms) {
         const staffIdx = gm.ParentStaff.idInMusicSheet;
         for (const se of gm.staffEntries) {
+          // fingering labels know their note: lets a view show or hide the move arrow of each note
+          type FingerLabel = { sourceNote?: { Pitch?: unknown; halfTone: number; ParentVoiceEntry: { Timestamp: { RealValue: number } } }; SVGNode?: Element };
+          for (const label of (se as unknown as { FingeringEntries?: FingerLabel[] }).FingeringEntries ?? []) {
+            const sn = label.sourceNote;
+            const node = label.SVGNode;
+            if (!sn?.Pitch || !node) continue;
+            const text = node.tagName === 'text' ? node : node.querySelector('text');
+            const ids = index.get(`${mIdx}|${staffIdx}|${Math.round(sn.ParentVoiceEntry.Timestamp.RealValue * 4 * 1000)}|${sn.halfTone + 12}`);
+            if (!text || !ids) continue;
+            for (const { id } of ids) fingers.set(id, [...(fingers.get(id) ?? []), text]);
+          }
           for (const gve of se.graphicalVoiceEntries) {
             const pitched = gve.notes.filter((g) => g.sourceNote && !g.sourceNote.isRest() && g.sourceNote.Pitch);
             const sortedByPitch = pitched.slice().sort((a, b) => a.sourceNote.halfTone - b.sourceNote.halfTone);
@@ -321,13 +340,14 @@ export function ScoreView(props: ScoreViewProps) {
     }
     noteEls.current = notes;
     groupEls.current = groups;
+    fingerTexts.current = fingers;
     elToNote.current = back;
     measureBoxes.current = boxes;
     staffBoxes.current = bands;
     entryPos.current = entries;
-    // finger move arrows ("3→"): raise the arrow to the middle of the digit — fonts draw arrows lower
+    // finger move marks ("3›"): raise the chevron to the middle of the digit — fonts draw it lower
     host.querySelectorAll('.osmd-fingering text').forEach((t) => {
-      const m = /^(\d)([←→])$/.exec(t.textContent ?? '');
+      const m = /^(\d)([‹›])$/.exec(t.textContent ?? '');
       if (!m) return;
       t.textContent = m[1];
       const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
@@ -442,6 +462,25 @@ export function ScoreView(props: ScoreViewProps) {
       for (const [g, ids] of notesOfGroup) if (ids.every((id) => dimIds.has(id))) g.classList.add('lp-dim');
     }
   }, [diffIds, rhythmIds, markIds, dimIds, layout]);
+
+  // finger move arrows of this view
+  useEffect(() => {
+    for (const [id, texts] of fingerTexts.current) {
+      const show = !moveMarks || moveMarks.has(id);
+      for (const t of texts) {
+        const arrow = t.querySelector('.lp-move-arrow') as SVGTextContentElement | null;
+        if (!arrow) continue;
+        if (!t.hasAttribute('data-x0')) {
+          t.setAttribute('data-x0', t.getAttribute('x') ?? '0');
+          t.setAttribute('data-aw', String(arrow.getComputedTextLength()));
+        }
+        const x0 = Number(t.getAttribute('data-x0'));
+        // without its arrow the digit moves back over the middle of its note
+        arrow.style.display = show ? '' : 'none';
+        t.setAttribute('x', String(show ? x0 : x0 + Number(t.getAttribute('data-aw')) / 2));
+      }
+    }
+  }, [moveMarks, layout]);
 
   // selected note (fingering editor)
   useEffect(() => {

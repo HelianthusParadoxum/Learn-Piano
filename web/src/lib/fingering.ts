@@ -565,13 +565,33 @@ export function markFingerMoves(notes: NoteEvent[]): void {
   }
 }
 
-/** Arrow of a finger move: → (to a key further right), ← (further left), '' (none). */
+/** Mark of a finger move: a short chevron › (to a key further right), ‹ (further left), '' (none). */
 export function moveArrow(move: NoteEvent['fingerMove']): string {
-  return move === 1 ? '→' : move === -1 ? '←' : '';
+  return move === 1 ? '›' : move === -1 ? '‹' : '';
 }
 
-/** "3→" / "3←" / "3": the finger first, then where it goes. */
+/** "3›" / "3‹" / "3": the finger first, then where it goes. */
 export function fingerLabel(n: Pick<NoteEvent, 'finger' | 'fingerMove'>): string {
   if (!n.finger) return '';
   return `${n.finger}${moveArrow(n.fingerMove)}`;
+}
+
+/**
+ * Finger moves as seen when a stretch [from, to) is played on its own: the first press of each finger
+ * in the stretch is the hand's starting position, not a move. (Moves inside the stretch are the same as
+ * in the whole piece: the stretch is continuous.)
+ */
+export function localMoves(notes: NoteEvent[], from: number, to: number): Map<number, 1 | -1> {
+  const out = new Map<number, 1 | -1>();
+  for (const hand of ['R', 'L'] as Hand[]) {
+    const used = new Set<number>();
+    const list = notes
+      .filter((n) => n.hand === hand && !n.grace && n.finger && n.onset >= from - 1e-6 && n.onset < to - 1e-6)
+      .sort((a, b) => a.onset - b.onset || a.midi - b.midi);
+    for (const n of list) {
+      if (used.has(n.finger!) && n.fingerMove) out.set(n.id, n.fingerMove);
+      used.add(n.finger!);
+    }
+  }
+  return out;
 }

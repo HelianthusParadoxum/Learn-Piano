@@ -1870,3 +1870,49 @@ button.badge {
 .finger-badge.hand-L .finger-move {
   fill: var(--L);
 }
+
+/* fixing notes in the popup */
+.finger-picker {
+  width: 290px;
+}
+.fp-edit {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fp-section {
+  font-weight: 700;
+  font-size: 13px;
+}
+.fp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fp-row .btn.small {
+  padding: 4px 9px;
+}
+.fp-sign {
+  min-width: 34px;
+  font-size: 15px;
+}
+.fp-sign.on {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+.btn.danger-outline {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+.btn.danger-outline:hover {
+  background: #fef2f2;
+}
+.fp-last {
+  color: #0f766e;
+}
+.edits-note {
+  font-size: 13px;
+}

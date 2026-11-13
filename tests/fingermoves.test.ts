@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fingerLabel, markFingerMoves } from '../web/src/lib/fingering';
+import { fingerLabel, localMoves, markFingerMoves } from '../web/src/lib/fingering';
 import type { NoteEvent } from '../web/src/lib/model';
 import { DEFAULT_SETTINGS } from '../web/src/lib/model';
 import { buildGuide } from '../web/src/lib/piece';
@@ -23,7 +23,7 @@ describe('finger move marks', () => {
     ];
     markFingerMoves(notes);
     expect(notes.map((n) => n.fingerMove ?? 0)).toEqual([0, 0, 0, 1, 1, 0, 0, -1]);
-    expect(notes.map(fingerLabel)).toEqual(['1', '2', '3', '1→', '2→', '1', '3', '1←']);
+    expect(notes.map(fingerLabel)).toEqual(['1', '2', '3', '1›', '2›', '1', '3', '1‹']);
   });
 
   it('tracks each hand separately', () => {
@@ -36,8 +36,8 @@ describe('finger move marks', () => {
     const g = buildGuide(loadExample('c-major-scale.musicxml'), DEFAULT_SETTINGS);
     const moved = g.score.notes.filter((n) => n.fingerMove);
     expect(moved.length).toBeGreaterThan(0);
-    expect(g.renderXml).toMatch(/<fingering[^>]*>\d[→←]<\/fingering>/);
-    expect(g.exportXml).not.toMatch(/[→←]/);
+    expect(g.renderXml).toMatch(/<fingering[^>]*>\d[‹›]<\/fingering>/);
+    expect(g.exportXml).not.toMatch(/[‹›]/);
   });
 });
 
@@ -46,10 +46,23 @@ describe('finger move marks on a semitone', () => {
     // bar 3 ends with A4 on finger 2; bar 4 is the chord E♯4 + G♯4 on fingers 1 and 2
     const notes = [note(0, 0, 66, 1), note(1, 0, 74, 5), note(2, 3, 69, 2), note(3, 4, 65, 1), note(4, 4, 68, 2)];
     markFingerMoves(notes);
-    expect(notes.map(fingerLabel)).toEqual(['1', '5', '2', '1←', '2←']);
+    expect(notes.map(fingerLabel)).toEqual(['1', '5', '2', '1‹', '2‹']);
     // the same key again: no mark
     const again = [note(0, 0, 69, 2), note(1, 1, 69, 2)];
     markFingerMoves(again);
     expect(again.map(fingerLabel)).toEqual(['2', '2']);
+  });
+});
+
+describe('finger moves inside a fragment', () => {
+  it('treats the first press of each finger in a fragment as the starting position', () => {
+    // a fragment starts at onset 2: before it, finger 1 played C and finger 2 played D
+    const notes = [note(0, 0, 60, 1), note(1, 1, 62, 2), note(2, 2, 64, 1), note(3, 3, 65, 2), note(4, 4, 67, 1)];
+    markFingerMoves(notes);
+    // in the whole piece: 1 C→E, 2 D→F, 1 E→G
+    expect(notes.map(fingerLabel)).toEqual(['1', '2', '1›', '2›', '1›']);
+    // in the fragment [2, 5): E and F are where the hand starts; only 1 E→G is a move
+    const local = localMoves(notes, 2, 5);
+    expect([...local.entries()]).toEqual([[4, 1]]);
   });
 });

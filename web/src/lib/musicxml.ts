@@ -630,7 +630,7 @@ function extractComposer(root: Element): string {
 /* Fingering injection                                                 */
 /* ------------------------------------------------------------------ */
 
-const NOTE_CHILD_ORDER = [
+export const NOTE_CHILD_ORDER = [
   'grace', 'cue', 'chord', 'pitch', 'unpitched', 'rest', 'duration', 'tie', 'instrument', 'voice', 'type',
   'dot', 'accidental', 'time-modification', 'stem', 'notehead', 'notehead-text', 'staff', 'beam', 'notations',
   'lyric', 'play', 'listen',
@@ -639,7 +639,7 @@ const NOTE_CHILD_ORDER = [
 /**
  * Returns a copy of the document with <fingering> elements set for every note that has a finger.
  * Notes are matched by document order index. With `moveMarks` a finger that lands on another key than
- * the last time it was used gets an arrow after its number ("3→", "3←": first which finger, then where
+ * the last time it was used gets a chevron after its number ("3›", "3‹": first which finger, then where
  * it goes) — for display only: other programs expect plain digits.
  */
 export function withFingerings(doc: XMLDocument, notes: NoteEvent[], moveMarks = false): XMLDocument {
@@ -649,7 +649,7 @@ export function withFingerings(doc: XMLDocument, notes: NoteEvent[], moveMarks =
     if (!n.finger || n.xmlIndex < 0) continue;
     const el = els[n.xmlIndex];
     if (!el) continue;
-    const text = moveMarks && n.fingerMove ? `${n.finger}${n.fingerMove > 0 ? '→' : '←'}` : String(n.finger);
+    const text = moveMarks && n.fingerMove ? `${n.finger}${n.fingerMove > 0 ? '›' : '‹'}` : String(n.finger);
     setFingering(clone, el, text, n.hand === 'L' ? 'below' : 'above');
   }
   return clone;

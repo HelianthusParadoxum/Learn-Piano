@@ -11,11 +11,16 @@ import { buildGuide, stepKey, type Guide } from '../lib/piece';
 import { getPiece, savePiece, type PieceRecord } from '../lib/storage';
 import { FullScoreView } from '../views/FullScoreView';
 import { GuideView } from '../views/GuideView';
+import { applyNoteEdit, rekeyOverride, type NoteEdit } from '../lib/noteEdit';
+import { pitchToMidi } from '../lib/musicxml';
+import { fullNoteName } from '../lib/noteNames';
 
 
 export function PiecePage({ route }: { route: Route }) {
   const [rec, setRec] = useState<PieceRecord | null | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** earlier versions of the notes during this visit (undo of note fixes) */
+  const [undo, setUndo] = useState<{ musicXml: string; overrides: Record<string, number>; noteEdits: number }[]>([]);
 
   // start downloading the piano samples right away so that the first "play" is instant
   useEffect(() => {
@@ -104,6 +109,54 @@ export function PiecePage({ route }: { route: Route }) {
     const k = stepKey(score, guide.blocks, steps[stepIndex]);
     update({ learned: rec.learned.includes(k) ? rec.learned.filter((x) => x !== k) : [...rec.learned, k] });
   };
+  /** Fixes a note (a recognition error) in the stored MusicXML; the guide is rebuilt from it. */
+  const editNote = (noteId: number, edit: NoteEdit): { select: number | null; message: string } | null => {
+    const note = score.notes[noteId];
+    if (!note) return null;
+    let result;
+    try {
+      result = applyNoteEdit(rec.musicXml, score, note, edit);
+    } catch (e) {
+      alert(String((e as Error).message || e));
+      return null;
+    }
+    // the finger chosen for this note stays with it
+    const overrides = { ...rec.overrides };
+    if (result.pitch && edit.kind !== 'addAbove' && overrides[note.key] !== undefined) {
+      const finger = overrides[note.key];
+      delete overrides[note.key];
+      overrides[rekeyOverride(note.key, pitchToMidi(result.pitch.step, result.pitch.alter, result.pitch.octave))] = finger;
+    }
+    if (edit.kind === 'delete') delete overrides[note.key];
+    setUndo((u) => [...u.slice(-29), { musicXml: rec.musicXml, overrides: rec.overrides, noteEdits: rec.noteEdits ?? 0 }]);
+    update({
+      musicXml: result.xml,
+      recognizedXml: rec.recognizedXml ?? rec.musicXml,
+      noteEdits: (rec.noteEdits ?? 0) + 1,
+      overrides,
+    });
+    const before = fullNoteName(note);
+    const after = result.pitch ? fullNoteName(result.pitch) : '';
+    const message =
+      edit.kind === 'delete'
+        ? `Нота ${before} удалена.`
+        : edit.kind === 'addAbove'
+          ? `Добавлена нота ${after} — её можно сдвинуть ▲ ▼.`
+          : `${before} → ${after}`;
+    return { select: result.select, message };
+  };
+  const undoEdit = () => {
+    const last = undo[undo.length - 1];
+    if (!last) return;
+    setUndo((u) => u.slice(0, -1));
+    update({ musicXml: last.musicXml, overrides: last.overrides, noteEdits: last.noteEdits });
+  };
+  const resetNotes = () => {
+    if (!rec.recognizedXml) return;
+    setUndo((u) => [...u.slice(-29), { musicXml: rec.musicXml, overrides: rec.overrides, noteEdits: rec.noteEdits ?? 0 }]);
+    update({ musicXml: rec.recognizedXml, recognizedXml: undefined, noteEdits: 0 });
+  };
+
   const setOverride = (key: string, finger: number | null) => {
     const overrides = { ...rec.overrides };
     if (finger === null) delete overrides[key];
@@ -151,7 +204,7 @@ export function PiecePage({ route }: { route: Route }) {
       {rec.recognizer === 'claude' && (
         <div className="alert info">
           Ноты распознал Claude по изображению страниц. Сверьте их с оригиналом (вкладка «Оригинал»), особенно знаки
-          альтерации и ритм. Если нашли ошибку — исправьте MusicXML в MuseScore («Настройки» → экспорт) и загрузите заново.
+          альтерации и ритм. Нашли ошибку в ноте — нажмите на неё в гайде и исправьте прямо здесь (▲ ▼, ♭ ♮ ♯, удалить).
         </div>
       )}
 
@@ -194,6 +247,9 @@ export function PiecePage({ route }: { route: Route }) {
           }}
           onToggleLearned={toggleLearned}
           onOverride={setOverride}
+          onEditNote={editNote}
+          canUndoEdit={undo.length > 0}
+          onUndoEdit={undoEdit}
           overrides={rec.overrides}
         />
       )}
@@ -221,6 +277,7 @@ export function PiecePage({ route }: { route: Route }) {
           onChange={(settings: PieceSettings) => update({ settings })}
           onResetOverrides={() => update({ overrides: {} })}
           onRename={(title) => update({ title })}
+          onResetNotes={rec.recognizedXml ? resetNotes : undefined}
         />
       )}
     </div>
