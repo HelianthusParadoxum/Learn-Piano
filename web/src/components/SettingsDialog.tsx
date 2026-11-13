@@ -58,12 +58,28 @@ export function SettingsDialog(props: {
           <div className="seg">
             {(['auto', 1, 2, 4, 8] as const).map((v) => (
               <button key={String(v)} className={s.blockSize === v ? 'on' : ''} onClick={() => onChange({ ...s, blockSize: v })}>
-                {v === 'auto' ? 'Авто (по фразам)' : `${v} ${v === 1 ? 'такт' : v < 5 ? 'такта' : 'тактов'}`}
+                {v === 'auto' ? 'Авто (по паттернам)' : `${v} ${v === 1 ? 'такт' : v < 5 ? 'такта' : 'тактов'}`}
               </button>
             ))}
           </div>
           <small className="muted">
-            Авто — блоки по музыкальным фразам с учётом плотности нот. Сейчас блоков: {guide.blocks.length}.
+            Авто — границы фрагментов подбираются так, чтобы повторы совпадали с фрагментами. Сейчас фрагментов:{' '}
+            {guide.blocks.length}, паттернов: {guide.families.length}.
+          </small>
+        </div>
+
+        <div className="field">
+          <span>Насколько похожими должны быть фрагменты, чтобы считаться одним паттерном</span>
+          <div className="seg">
+            {([0.7, 0.8, 0.9] as const).map((v) => (
+              <button key={v} className={(s.similarity ?? 0.8) === v ? 'on' : ''} onClick={() => onChange({ ...s, similarity: v })}>
+                {Math.round(v * 100)}%{v === 0.8 ? ' (рекомендуется)' : v === 0.7 ? ' — больше вариаций' : ' — только почти точные'}
+              </button>
+            ))}
+          </div>
+          <small className="muted">
+            Фрагменты, совпадающие хотя бы на этот процент нот, объединяются в паттерн: вы учите основу, а в вариациях — только
+            выделенные отличия. Фрагмент, где одна рука повторяется точно, тоже считается вариацией.
           </small>
         </div>
 

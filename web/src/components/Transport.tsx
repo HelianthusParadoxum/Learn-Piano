@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { HandMode } from '../lib/audio';
 import type { Hand } from '../lib/model';
 
@@ -40,6 +41,8 @@ export interface TransportProps {
   onSeek?: (fraction: number) => void;
   timeLabel: string;
   markers?: { at: number; label: string }[];
+  /** extra controls in the first row (e.g. "compare with the base pattern") */
+  extra?: ReactNode;
 }
 
 export function Transport(p: TransportProps) {
@@ -62,6 +65,7 @@ export function Transport(p: TransportProps) {
             <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor" /></svg>
           )}
         </button>
+        {p.extra}
         {p.onStepPrev && (
           <div className="step-btns" title="Пошаговый режим: по одной ноте/аккорду (← →)">
             <button className="btn small" onClick={p.onStepPrev}>◀ шаг</button>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BLOCK_COLORS, ScoreView } from '../components/ScoreView';
+import { ScoreView } from '../components/ScoreView';
+import { StructureMap } from '../components/StructureMap';
 import { handsFor, Transport, type HandSelection } from '../components/Transport';
 import { player } from '../lib/audio';
 import { usePersistentState, usePlayerState } from '../lib/hooks';
@@ -20,7 +21,7 @@ export function FullScoreView(props: {
   onOpenBlock: (index: number) => void;
 }) {
   const { guide, learned, lastBlock, onOpenBlock } = props;
-  const { score, blocks, renderXml } = guide;
+  const { score, blocks, families, renderXml } = guide;
   const ps = usePlayerState();
   const hasR = score.notes.some((n) => n.hand === 'R');
   const hasL = score.notes.some((n) => n.hand === 'L');
@@ -31,6 +32,12 @@ export function FullScoreView(props: {
   const [metronome, setMetronome] = usePersistentState('metronome', false);
   const [countIn, setCountIn] = usePersistentState('countIn', false);
   const [cursor, setCursor] = useState<number | null>(null);
+  const [showDiff, setShowDiff] = usePersistentState('showDiffFull', true);
+  const diffIds = useMemo(() => {
+    const set = new Set<number>();
+    if (showDiff) for (const b of blocks) for (const id of [...(b.diff?.changed ?? []), ...(b.diff?.rhythm ?? [])]) set.add(id);
+    return set;
+  }, [blocks, showDiff]);
 
   const handSel: HandSelection =
     handSelPref === 'both' ? (hasR && hasL ? 'both' : hasR ? 'R' : 'L') : handSelPref === 'R' ? (hasR ? 'R' : 'L') : hasL ? 'L' : 'R';
@@ -108,14 +115,14 @@ export function FullScoreView(props: {
   const f = tempoPct / 100;
   const totalSec = quarterToSeconds(score.tempoMap, to, f);
   const elapsedSec = quarterToSeconds(score.tempoMap, pos, f);
-  const markers = blocks.slice(1).map((b) => ({ at: b.start / to, label: `Блок ${b.index + 1}` }));
+  const markers = blocks.slice(1).map((b) => ({ at: b.start / to, label: `${b.label} · такт ${score.measures[b.startMeasure].number}` }));
 
   return (
     <section className="full-score">
       <div className="full-intro">
         <p>
-          Цветные рамки — блоки гайда. <b>Нажмите на блок</b>, чтобы перейти к шагу с его разучиванием. Во время
-          воспроизведения подсвечиваются звучащие ноты и текущий блок.
+          Пьеса разложена на паттерны. <b>Нажмите на фрагмент</b> (рамку на нотах или полосу ниже), чтобы перейти к шагу,
+          где он разучивается. Во время воспроизведения подсвечиваются звучащие ноты и текущий фрагмент.
         </p>
       </div>
       <Transport
@@ -150,21 +157,20 @@ export function FullScoreView(props: {
         timeLabel={`${fmtTime(elapsedSec)} / ${fmtTime(totalSec)}`}
         markers={markers}
       />
-      <div className="block-chips">
-        {blocks.map((b) => (
-          <button
-            key={b.index}
-            className={`block-chip ${b.index === currentBlock ? 'current' : ''} ${learned.has(b.index) ? 'learned' : ''}`}
-            style={{ ['--block-color' as string]: BLOCK_COLORS[b.index % BLOCK_COLORS.length] }}
-            onClick={() => onOpenBlock(b.index)}
-            title={`Открыть шаг ${b.index + 1}`}
-          >
-            <b>{learned.has(b.index) ? '✓' : b.index + 1}</b>
-            <span>
-              т. {score.measures[b.startMeasure].number}–{score.measures[b.endMeasure].number}
-            </span>
-          </button>
-        ))}
+      <StructureMap
+        score={score}
+        blocks={blocks}
+        families={families}
+        highlight={currentBlock !== undefined ? new Set([currentBlock]) : undefined}
+        onBlock={onOpenBlock}
+        showSummary
+      />
+      <div className="full-legend">
+        <span>Рамки одного цвета — один паттерн: буква без штриха — его первое появление и точные повторы, A′, A″ — вариации.</span>
+        <label className="check">
+          <input type="checkbox" checked={showDiff} onChange={(e) => setShowDiff(e.target.checked)} />
+          <span className="diff-swatch" /> показывать отличия вариаций от основы
+        </label>
       </div>
       <div className="card score-card full">
         <ScoreView
@@ -176,6 +182,7 @@ export function FullScoreView(props: {
           currentBlock={currentBlock}
           learned={learned}
           onBlockClick={onOpenBlock}
+          diffIds={diffIds}
           followMeasure={playing ? currentMeasure : null}
         />
       </div>

@@ -1481,3 +1481,237 @@ button.badge {
     width: 110px;
   }
 }
+
+/* ---------- pattern structure ---------- */
+:root {
+  --diff: #c026d3;
+  --diff-soft: #fae8ff;
+}
+.guide-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.structure {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+.structure-bar {
+  display: flex;
+  gap: 4px;
+  min-height: 44px;
+}
+.structure-seg {
+  position: relative;
+  min-width: 34px;
+  border: 2px solid var(--block-color);
+  background: color-mix(in srgb, var(--block-color) 16%, white);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  line-height: 1.1;
+  transition: transform 0.1s, box-shadow 0.15s;
+}
+.structure-seg:hover {
+  transform: translateY(-1px);
+}
+.structure-seg.role-variation {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--block-color) 10%, white) 0 6px, color-mix(in srgb, var(--block-color) 24%, white) 6px 12px);
+  border-style: dashed;
+}
+.structure-seg.role-repeat {
+  background: color-mix(in srgb, var(--block-color) 7%, white);
+  border-color: color-mix(in srgb, var(--block-color) 55%, white);
+}
+.structure-seg.active {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--block-color) 40%, transparent);
+  background: color-mix(in srgb, var(--block-color) 32%, white);
+}
+.seg-label {
+  font-weight: 800;
+  font-size: 15px;
+  color: color-mix(in srgb, var(--block-color) 80%, black);
+}
+.seg-measures {
+  font-size: 10.5px;
+  color: #475569;
+  white-space: nowrap;
+}
+.structure-summary {
+  margin-top: 8px;
+  font-size: 13.5px;
+  color: #374151;
+}
+.block-num {
+  background: var(--block-color, #64748b);
+}
+.block-num.variant {
+  background: white;
+  color: var(--block-color);
+  border: 2px dashed var(--block-color);
+}
+.block-item.kind-assemble .block-num {
+  background: #475569;
+}
+.block-item.learned .block-num.variant {
+  color: white;
+  border-style: solid;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 8px;
+  margin-right: 10px;
+  border-radius: 8px;
+  background: var(--block-color);
+  color: white;
+  font-size: 17px;
+  vertical-align: 2px;
+}
+.label-chip.variant {
+  background: white;
+  color: var(--block-color);
+  border: 2px dashed var(--block-color);
+}
+.step-sub {
+  color: var(--muted);
+  margin: -4px 0 8px;
+}
+.variation-intro {
+  background: var(--diff-soft);
+  border: 1px solid #f0abfc;
+  color: #701a75;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 14.5px;
+}
+.diff-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--diff);
+  vertical-align: -1px;
+  margin-right: 3px;
+}
+.diff-swatch.base {
+  background: white;
+  border: 2px solid var(--diff);
+}
+.diff-swatch.rhythm {
+  background: #9333ea;
+}
+.diff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  font-size: 13px;
+  color: #374151;
+  margin: -4px 0 6px;
+}
+.base-card {
+  background: #fcfcfd;
+  border-style: dashed;
+}
+.compare-btn {
+  border-color: var(--diff) !important;
+  color: #86198f;
+  font-weight: 700;
+}
+.compare-btn:hover,
+.compare-btn.on {
+  background: var(--diff-soft);
+}
+.dot.diff {
+  background: var(--diff);
+  margin-left: 8px;
+}
+.finger-badge.diff circle {
+  stroke: var(--diff);
+  stroke-width: 3.5;
+}
+.score-view .lp-diff path,
+.score-view .lp-diff {
+  fill: var(--diff) !important;
+  stroke: var(--diff) !important;
+}
+.score-view .lp-diff-rhythm path,
+.score-view .lp-diff-rhythm {
+  fill: #9333ea !important;
+  stroke: #9333ea !important;
+}
+.score-view .lp-diff-base path,
+.score-view .lp-diff-base {
+  fill: #e879f9 !important;
+  stroke: #a21caf !important;
+}
+.score-view .lp-dim {
+  opacity: 0.32;
+}
+.score-view .lp-on.lp-hand-R path,
+.score-view .lp-on.lp-hand-L path {
+  opacity: 1;
+}
+.block-overlay.role-variation {
+  border-style: dashed;
+}
+.block-overlay.role-repeat {
+  background: color-mix(in srgb, var(--block-color) 4%, transparent);
+}
+.occurrences {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.occ {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--block-color);
+  background: white;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.occ.role-variation {
+  border-left-style: dashed;
+}
+.occ:hover {
+  background: color-mix(in srgb, var(--block-color) 8%, white);
+}
+.assemble-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tip-diff::before {
+  content: '≠';
+  color: var(--diff);
+  font-weight: 800;
+}
+.diff-list .tip {
+  font-size: 14px;
+}
+.full-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  align-items: center;
+  font-size: 13.5px;
+  color: #374151;
+}

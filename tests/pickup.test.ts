@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseScore } from '../web/src/lib/musicxml';
-import { segmentBlocks } from '../web/src/lib/segment';
+import { analyzePatterns } from '../web/src/lib/patterns';
 
 /** Builds a 2/4 piece: pickup eighth, then a repeat sign, then `bars` dense measures (8 sixteenths per hand). */
 function pieceWithPickup(bars: number) {
@@ -24,13 +24,13 @@ describe('pickup measures and dense short bars', () => {
   it('merges the pickup into the first block even when a repeat sign follows it', () => {
     const score = parseScore(pieceWithPickup(16));
     expect(score.measures[0].implicit).toBe(true);
-    const blocks = segmentBlocks(score, 'auto');
+    const { blocks } = analyzePatterns(score, 'auto');
     expect(blocks[0].startMeasure).toBe(0);
     expect(blocks[0].endMeasure).toBeGreaterThanOrEqual(1);
     // dense 2/4 music should not degrade into one block per measure
     expect(blocks.length).toBeLessThanOrEqual(10);
     for (const mode of [1, 2, 4] as const) {
-      const fixed = segmentBlocks(score, mode);
+      const fixed = analyzePatterns(score, mode).blocks;
       expect(fixed[0].endMeasure).toBeGreaterThanOrEqual(1);
     }
   });

@@ -1,6 +1,6 @@
 /** Builds human-readable learning hints for a block. */
 import { isBlackKey, keyPosition } from './fingering';
-import { EPS, type Block, type Hand, type NoteEvent, type Score } from './model';
+import { EPS, type Hand, type NoteEvent, type Score } from './model';
 import {
   FINGER_NAMES,
   fullNoteName,
@@ -66,7 +66,17 @@ function eventsOf(notes: NoteEvent[]): Ev[] {
   return out;
 }
 
-export function analyzeBlock(score: Score, blocks: Block[], block: Block): BlockAnalysis {
+/** A stretch of the piece analysed for a guide step. */
+export interface Span {
+  startMeasure: number;
+  endMeasure: number;
+  start: number;
+  end: number;
+}
+
+export type StepKind = 'pattern' | 'variation' | 'assemble';
+
+export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern', isFirst = false): BlockAnalysis {
   const inBlock = score.notes.filter((n) => n.hand && n.onset >= block.start - EPS && n.onset < block.end - EPS);
   const byHand: Record<Hand, NoteEvent[]> = {
     R: inBlock.filter((n) => n.hand === 'R'),
@@ -77,18 +87,6 @@ export function analyzeBlock(score: Score, blocks: Block[], block: Block): Block
   let crossings = 0;
   let jumps = 0;
   let maxChord = 1;
-
-  if (block.repeatOf !== undefined) {
-    tips.push({
-      kind: 'repeat',
-      text: `Этот блок в точности повторяет блок ${block.repeatOf + 1}. Если вы его уже выучили — просто закрепите.`,
-    });
-  } else if (block.similarTo !== undefined) {
-    tips.push({
-      kind: 'repeat',
-      text: `Блок очень похож на блок ${block.similarTo + 1} (совпадает ~${Math.round((block.similarity ?? 0) * 100)}% нот). Сравните их и найдите отличия.`,
-    });
-  }
 
   for (const hand of ['R', 'L'] as Hand[]) {
     const notes = byHand[hand];
@@ -186,7 +184,7 @@ export function analyzeBlock(score: Score, blocks: Block[], block: Block): Block
   // key signature and accidentals
   const fifths = score.measures[block.startMeasure]?.fifths ?? 0;
   const keyAcc = keySignatureAccidentals(fifths);
-  if (keyAcc.length && (block.index === 0 || score.measures[block.startMeasure].keyChange)) {
+  if (keyAcc.length && (isFirst || score.measures[block.startMeasure].keyChange)) {
     const names = keyAcc.map((a) => stepName(a.step, a.alter, 'solfege')).join(', ');
     tips.push({
       kind: 'key',
@@ -249,20 +247,29 @@ export function analyzeBlock(score: Score, blocks: Block[], block: Block): Block
     Math.min(1, accidentals.size * 0.3 + blackCount * 0.03) +
     (maxChord >= 3 ? 0.6 : maxChord === 2 ? 0.3 : 0) +
     (bothHands ? 0.5 : 0);
-  if (block.repeatOf !== undefined) score01 *= 0.5;
   const difficulty = Math.max(1, Math.min(5, Math.round(score01 / 1.4 + 0.4)));
   const labels = ['', 'очень легко', 'легко', 'средне', 'сложно', 'очень сложно'];
 
   const plan: string[] = [];
-  plan.push('Послушайте блок целиком и проследите глазами за нотами и клавишами.');
-  if (byHand.R.length) plan.push('Правая рука отдельно в медленном темпе (50–60%), пока не получится 3 раза подряд без ошибок.');
-  if (byHand.L.length) plan.push('Левая рука отдельно — так же медленно, следите за аппликатурой.');
-  if (bothHands) plan.push('Обе руки вместе, очень медленно. Лучше медленно и ровно, чем быстро с остановками.');
-  plan.push('Постепенно повышайте темп до 80–100%.');
-  if (block.index > 0) plan.push(`Соедините с предыдущим блоком (${block.index}): кнопка «С предыдущим».`);
+  if (kind === 'variation') {
+    plan.push('Нажмите «Сравнить»: сначала прозвучит основа паттерна, затем эта вариация. Услышьте разницу.');
+    plan.push('Найдите выделенные ноты — только они отличаются от уже выученной основы.');
+    plan.push('Сыграйте отдельно такты с отличиями, медленно, 3 раза подряд без ошибок.');
+    plan.push('Сыграйте вариацию целиком, сначала медленно, затем в темпе 80–100%.');
+  } else if (kind === 'assemble') {
+    plan.push('Послушайте фрагмент целиком и проследите, как паттерны следуют друг за другом.');
+    plan.push('Сыграйте медленно без остановок — особенно внимательно на стыках паттернов.');
+    if (bothHands) plan.push('Если сбиваетесь — сыграйте стык каждой рукой отдельно, затем снова вместе.');
+    plan.push('Постепенно повышайте темп до 80–100%. Цель — сыграть 3 раза подряд без ошибок.');
+  } else {
+    plan.push('Послушайте паттерн целиком и проследите глазами за нотами и клавишами.');
+    if (byHand.R.length) plan.push('Правая рука отдельно в медленном темпе (50–60%), пока не получится 3 раза подряд без ошибок.');
+    if (byHand.L.length) plan.push('Левая рука отдельно — так же медленно, следите за аппликатурой.');
+    if (bothHands) plan.push('Обе руки вместе, очень медленно. Лучше медленно и ровно, чем быстро с остановками.');
+    plan.push('Постепенно повышайте темп до 80–100%.');
+  }
 
   const all = inBlock.map((n) => n.midi);
-  void blocks;
   return {
     noteCount: { R: byHand.R.length, L: byHand.L.length },
     handPositions,

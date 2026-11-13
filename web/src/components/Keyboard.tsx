@@ -5,6 +5,8 @@ import { midiLabel, type NameStyle } from '../lib/noteNames';
 export interface KeyMark {
   hand: Hand | null;
   finger?: number;
+  /** the note differs from the base pattern */
+  diff?: boolean;
 }
 
 export interface KeyboardRange {
@@ -59,7 +61,7 @@ export function Keyboard(props: {
   const x0 = keyPosition(range.low);
 
   const fingerBadge = (cx: number, cy: number, mark: KeyMark, small = false) => (
-    <g className={`finger-badge hand-${mark.hand ?? 'x'}`}>
+    <g className={`finger-badge hand-${mark.hand ?? 'x'} ${mark.diff ? 'diff' : ''}`}>
       <circle cx={cx} cy={cy} r={small ? 7.5 : 9} />
       <text x={cx} y={cy + (small ? 3.6 : 4.2)} textAnchor="middle">
         {mark.finger ?? ''}

@@ -78,6 +78,8 @@ export interface FingeringOptions {
   handSize?: keyof typeof HAND_SCALE;
   /** note.key → finger, set by the user; strongest constraint. */
   overrides?: Record<string, number>;
+  /** note.key → finger copied from the first appearance of the same pattern (same fingers in every repeat) */
+  patternFingers?: Record<string, number>;
   /** Quarter-note tempo (used to decide whether the hand has time to move between notes). */
   tempo?: number;
   /** Use fingerings written in the score as constraints (default true). */
@@ -304,6 +306,7 @@ export function fingerHand(allNotes: NoteEvent[], hand: Hand, opts: FingeringOpt
   if (!notes.length) return;
   const model = new CostModel(hand, opts.handSize ?? 'medium');
   const overrides = opts.overrides ?? {};
+  const patternFingers = opts.patternFingers ?? {};
   const useScore = opts.useScoreFingerings ?? true;
   const secPerQuarter = 60 / (opts.tempo ?? 90);
   const events = buildEvents(notes, secPerQuarter);
@@ -312,7 +315,7 @@ export function fingerHand(allNotes: NoteEvent[], hand: Hand, opts: FingeringOpt
   for (const ev of events) {
     const k = ev.notes.length;
     let states = COMBOS[k].map((combo) => (hand === 'R' ? combo.slice() : combo.slice().reverse()));
-    const forced = ev.notes.map((n) => overrides[n.key] ?? (useScore ? n.scoreFinger : undefined));
+    const forced = ev.notes.map((n) => overrides[n.key] ?? (useScore ? n.scoreFinger : undefined) ?? patternFingers[n.key]);
     if (forced.some((f) => f !== undefined)) {
       const filtered = states.filter((s) => s.every((f, j) => forced[j] === undefined || forced[j] === f));
       if (filtered.length) states = filtered;
@@ -441,7 +444,13 @@ export function fingerHand(allNotes: NoteEvent[], hand: Hand, opts: FingeringOpt
     ev.notes.forEach((note, j) => {
       note.finger = s[j];
       note.fingerSource =
-        overrides[note.key] !== undefined ? 'user' : useScore && note.scoreFinger === s[j] ? 'score' : 'auto';
+        overrides[note.key] !== undefined
+          ? 'user'
+          : useScore && note.scoreFinger === s[j]
+            ? 'score'
+            : patternFingers[note.key] === s[j]
+              ? 'pattern'
+              : 'auto';
     });
     for (const [dupe, orig] of ev.dupes) {
       dupe.finger = orig.finger;

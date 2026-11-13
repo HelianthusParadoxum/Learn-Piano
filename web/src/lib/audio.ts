@@ -170,6 +170,11 @@ export interface PlaybackOptions {
   /** Range in quarter notes. */
   from: number;
   to: number;
+  /**
+   * Optional ranges played one after another (e.g. a pattern, then its variation). When given, it
+   * replaces from/to for what sounds; from/to still identify the playback for the UI.
+   */
+  sequence?: { from: number; to: number }[];
   /** Position to start from (defaults to `from`). */
   startAt?: number;
   hands: Record<Hand, HandMode>;
@@ -224,6 +229,8 @@ export class Player {
   private score: Score | null = null;
   private countInEnd = 0;
   private countInBeats: { time: number }[] = [];
+  private queue: { from: number; to: number }[] = [];
+  private queueIndex = 0;
 
   constructor(readonly engine: PianoEngine) {}
 
@@ -254,7 +261,12 @@ export class Player {
     }
     this.score = score;
     this.opts = opts;
-    const startQ = Math.min(Math.max(opts.startAt ?? opts.from, opts.from), opts.to - 1e-3);
+    this.queue = opts.sequence?.length ? opts.sequence : [{ from: opts.from, to: opts.to }];
+    this.queueIndex = 0;
+    const first = this.queue[0];
+    const startQ = opts.sequence?.length
+      ? first.from
+      : Math.min(Math.max(opts.startAt ?? opts.from, opts.from), opts.to - 1e-3);
     let t0 = ctx.currentTime + 0.12;
     this.countInBeats = [];
     if (opts.countIn) {
@@ -271,7 +283,7 @@ export class Player {
       t0 += beats * secPerBeat;
     }
     this.countInEnd = t0;
-    this.passes = [this.buildPass(t0, startQ, opts.to)];
+    this.passes = [this.buildPass(t0, startQ, first.to)];
     this.set({ playing: true, position: startQ, countingIn: opts.countIn, countBeat: 0, from: opts.from, to: opts.to, pass: 0 });
     this.timer = window.setInterval(this.tick, 25);
     this.tick();
@@ -323,11 +335,20 @@ export class Player {
       if (it.kind === 'note') this.engine.playNote(it.midi!, it.time, it.dur!, it.vel, it.gain);
       else this.engine.click(it.time, !!it.accent);
     }
-    if (pass && pass.next >= pass.items.length && this.opts.loop && pass.endTime < horizon + 0.5 && this.passes.length < 10_000) {
-      const nextPass = this.buildPass(pass.endTime + LOOP_GAP, this.opts.from, this.opts.to);
-      this.passes.push(nextPass);
-      if (this.passes.length > 3) this.passes.shift();
-      pass = nextPass;
+    if (pass && pass.next >= pass.items.length && pass.endTime < horizon + 0.5) {
+      // next range of a sequence, or the start again when looping
+      let next: { from: number; to: number } | null = null;
+      if (this.queueIndex + 1 < this.queue.length) next = this.queue[++this.queueIndex];
+      else if (this.opts.loop) {
+        this.queueIndex = 0;
+        next = this.queue[0];
+      }
+      if (next) {
+        const nextPass = this.buildPass(pass.endTime + LOOP_GAP, next.from, next.to);
+        this.passes.push(nextPass);
+        if (this.passes.length > 3) this.passes.shift();
+        pass = nextPass;
+      }
     }
   };
 
@@ -346,12 +367,14 @@ export class Player {
     for (const p of this.passes) if (now >= p.base - 1e-3) current = p;
     if (!current) return;
     if (now > current.endTime) {
-      if (!this.opts.loop) {
+      const upcoming = this.passes.find((p) => p.base > now);
+      const more = upcoming || this.queueIndex + 1 < this.queue.length || this.opts.loop;
+      if (!more) {
         if (now > current.endTime + 0.25) this.stop(true);
         return;
       }
-      // in the gap between two passes: show the start
-      this.set({ position: this.opts.from, countingIn: false });
+      // in the gap between two passes: show where the next one starts
+      this.set({ position: upcoming ? upcoming.startQ : this.queue[0].from, countingIn: false });
       return;
     }
     const map = this.score.tempoMap;

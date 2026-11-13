@@ -4,6 +4,7 @@ import { isBlackKey } from '../lib/fingering';
 import type { Hand, MeasureInfo, NoteEvent } from '../lib/model';
 import { keyCenter, whiteKeyCount, type KeyboardRange } from './Keyboard';
 
+const DIFF_COLORS: [string, string] = ['#c026d3', '#f5d0fe'];
 const COLORS: Record<Hand | 'x', [string, string]> = {
   R: ['#2563eb', '#bfdbfe'],
   L: ['#ea580c', '#fed7aa'],
@@ -20,8 +21,10 @@ export function PianoRoll(props: {
   measures: MeasureInfo[];
   rangeEnd: number;
   height?: number;
+  /** notes that differ from the base pattern */
+  diffIds?: ReadonlySet<number>;
 }) {
-  const { notes, range, position, windowQ, hands, measures, rangeEnd, height = 200 } = props;
+  const { notes, range, position, windowQ, hands, measures, rangeEnd, height = 200, diffIds } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef({ w: 0, h: height });
 
@@ -117,11 +120,12 @@ export function PianoRoll(props: {
       const yTop = h - (end - position) * pxPerQ;
       const yBottom = h - (n.onset - position) * pxPerQ;
       const sounding = n.onset <= position + 1e-6 && end > position;
-      const [strong, light] = COLORS[hand];
+      const isDiff = diffIds?.has(n.id);
+      const [strong, light] = isDiff ? DIFF_COLORS : COLORS[hand];
       ctx.globalAlpha = mode === 'off' ? 0.25 : mode === 'quiet' ? 0.55 : 1;
       ctx.fillStyle = sounding ? strong : black ? strong : light;
       ctx.strokeStyle = strong;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = isDiff ? 2.5 : 1.5;
       const top = Math.max(yTop, -4);
       const bottom = Math.min(yBottom - 1, h + 4);
       roundRect(ctx, cx - bw / 2, top, bw, Math.max(4, bottom - top), Math.min(6, bw / 3));

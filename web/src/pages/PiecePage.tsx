@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { pianoEngine } from '../lib/audio';
 import { navigate, type Route } from '../lib/hooks';
-import type { Block, PieceSettings, Score } from '../lib/model';
+import type { PieceSettings, Score } from '../lib/model';
 import { parseScore } from '../lib/musicxml';
 import { keyName } from '../lib/noteNames';
-import { buildGuide, type Guide } from '../lib/piece';
+import { stepOfBlock } from '../lib/patterns';
+import { buildGuide, stepKey, type Guide } from '../lib/piece';
 import { getPiece, savePiece, type PieceRecord } from '../lib/storage';
 import { FullScoreView } from '../views/FullScoreView';
 import { GuideView } from '../views/GuideView';
 
-export const blockKey = (b: Block) => `${b.startMeasure}-${b.endMeasure}`;
 
 export function PiecePage({ route }: { route: Route }) {
   const [rec, setRec] = useState<PieceRecord | null | undefined>(undefined);
@@ -55,14 +55,21 @@ export function PiecePage({ route }: { route: Route }) {
 
   // keep library metadata in sync
   useEffect(() => {
-    if (rec && guide && rec.blockCount !== guide.blocks.length) update({ blockCount: guide.blocks.length });
+    if (rec && guide && rec.blockCount !== guide.steps.length) update({ blockCount: guide.steps.length });
   }, [guide, rec, update]);
 
+  /** learned steps (indices) */
   const learned = useMemo(() => {
     const set = new Set<number>();
-    if (rec && guide) for (const b of guide.blocks) if (rec.learned.includes(blockKey(b))) set.add(b.index);
+    if (rec && guide) guide.steps.forEach((st, i) => rec.learned.includes(stepKey(guide.blocks, st)) && set.add(i));
     return set;
   }, [rec, guide]);
+  /** blocks whose learning step is done (for the full score map) */
+  const learnedBlocks = useMemo(() => {
+    const set = new Set<number>();
+    if (guide) for (const b of guide.blocks) if (learned.has(stepOfBlock(guide.steps, guide.blocks, b.index))) set.add(b.index);
+    return set;
+  }, [guide, learned]);
 
   if (rec === undefined) return <div className="page-msg">Загрузка…</div>;
   if (rec === null) {
@@ -80,12 +87,12 @@ export function PiecePage({ route }: { route: Route }) {
     );
   }
 
-  const { score, blocks } = guide;
+  const { score, steps, families } = guide;
   const tab = route.tab ?? 'guide';
-  const step = Math.min(Math.max(1, route.step ?? 1), blocks.length);
+  const step = Math.min(Math.max(1, route.step ?? 1), Math.max(1, steps.length));
   const firstMeasure = score.measures[0];
-  const toggleLearned = (b: Block) => {
-    const k = blockKey(b);
+  const toggleLearned = (stepIndex: number) => {
+    const k = stepKey(guide.blocks, steps[stepIndex]);
     update({ learned: rec.learned.includes(k) ? rec.learned.filter((x) => x !== k) : [...rec.learned, k] });
   };
   const setOverride = (key: string, finger: number | null) => {
@@ -109,16 +116,18 @@ export function PiecePage({ route }: { route: Route }) {
             </span>
             <span className="chip">♩ = {Math.round(score.tempoMap[0].bpm)}{score.tempoFromFile ? '' : ' (по умолчанию)'}</span>
             <span className="chip">{score.measures.length} тактов</span>
-            <span className="chip">{blocks.length} блоков</span>
+            <span className="chip">
+              {families.length} {families.length === 1 ? 'паттерн' : families.length < 5 ? 'паттерна' : 'паттернов'} · {steps.length} шагов
+            </span>
           </div>
         </div>
         <div className="piece-header-side">
           <div className="overall-progress" title="Выученные блоки">
             <div className="overall-label">
-              Выучено {learned.size} из {blocks.length}
+              Выучено шагов: {learned.size} из {steps.length}
             </div>
             <div className="progress-track small">
-              <div className="progress-fill green" style={{ width: `${(learned.size / Math.max(1, blocks.length)) * 100}%` }} />
+              <div className="progress-fill green" style={{ width: `${(learned.size / Math.max(1, steps.length)) * 100}%` }} />
             </div>
           </div>
           <button className="btn ghost" onClick={() => setSettingsOpen(true)} title="Настройки">
@@ -140,7 +149,7 @@ export function PiecePage({ route }: { route: Route }) {
           className={tab === 'guide' ? 'active' : ''}
           onClick={() => navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step })}
         >
-          Гайд по блокам
+          Гайд по паттернам
         </button>
         <button
           role="tab"
@@ -165,7 +174,7 @@ export function PiecePage({ route }: { route: Route }) {
           pieceId={rec.id}
           guide={guide}
           step={step}
-          learned={learned}
+          learnedSteps={learned}
           settings={rec.settings}
           onStep={(s) => {
             navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: s });
@@ -179,11 +188,12 @@ export function PiecePage({ route }: { route: Route }) {
       {tab === 'score' && (
         <FullScoreView
           guide={guide}
-          learned={learned}
+          learned={learnedBlocks}
           lastBlock={rec.lastBlock ?? 0}
           onOpenBlock={(i) => {
-            update({ lastBlock: i });
-            navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: i + 1 });
+            const s = stepOfBlock(steps, guide.blocks, i);
+            update({ lastBlock: s });
+            navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: s + 1 });
             window.scrollTo({ top: 0 });
           }}
         />

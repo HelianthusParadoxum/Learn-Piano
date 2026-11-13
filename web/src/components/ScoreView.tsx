@@ -21,6 +21,14 @@ export interface ScoreViewProps {
   /** measure to keep visible (auto-scroll during playback) */
   followMeasure?: number | null;
   compact?: boolean;
+  /** notes that differ from the base pattern (new or changed pitch) */
+  diffIds?: ReadonlySet<number>;
+  /** notes that differ from the base pattern only in length */
+  rhythmIds?: ReadonlySet<number>;
+  /** notes of the base pattern that are gone or changed in the variation shown next to it */
+  markIds?: ReadonlySet<number>;
+  /** notes to show faded (unchanged notes of a variation) */
+  dimIds?: ReadonlySet<number>;
 }
 
 interface Overlay {
@@ -40,12 +48,14 @@ interface MeasureBox {
   system: unknown;
 }
 
-export const BLOCK_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316'];
+/** Colours of pattern families (A, B, C…). */
+export const FAMILY_COLORS = ['#6366f1', '#0d9488', '#d97706', '#0284c7', '#7c3aed', '#16a34a', '#e11d48', '#0891b2', '#ca8a04', '#9333ea'];
+export const familyColor = (family: number) => FAMILY_COLORS[((family % FAMILY_COLORS.length) + FAMILY_COLORS.length) % FAMILY_COLORS.length];
 
 export function ScoreView(props: ScoreViewProps) {
   const {
     xml, score, range, zoom = 1, activeIds, selectedId, blocks, currentBlock, learned,
-    onBlockClick, onNoteClick, followMeasure, compact,
+    onBlockClick, onNoteClick, followMeasure, compact, diffIds, rhythmIds, markIds, dimIds,
   } = props;
   const wrapRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -54,6 +64,7 @@ export function ScoreView(props: ScoreViewProps) {
   const chain = useRef<Promise<void>>(Promise.resolve());
   const version = useRef(0);
   const noteEls = useRef(new Map<number, Element[]>());
+  const groupEls = useRef(new Map<number, Element[]>());
   const elToNote = useRef(new Map<Element, number>());
   const highlighted = useRef(new Set<Element>());
   const measureBoxes = useRef(new Map<number, MeasureBox>());
@@ -178,6 +189,7 @@ export function ScoreView(props: ScoreViewProps) {
       }
     }
     const notes = new Map<number, Element[]>();
+    const groups = new Map<number, Element[]>();
     const back = new Map<Element, number>();
     const boxes = new Map<number, MeasureBox>();
     const unit = 10 * osmd.Zoom;
@@ -249,7 +261,14 @@ export function ScoreView(props: ScoreViewProps) {
               } catch {
                 /* graphical note without svg */
               }
+              let group: Element | null = null;
+              try {
+                group = (gn as unknown as { getSVGGElement(): Element | null }).getSVGGElement?.() ?? null;
+              } catch {
+                group = null;
+              }
               for (const { id, hand } of ids) {
+                if (group) groups.set(id, [...(groups.get(id) ?? []), group]);
                 const cur = notes.get(id) ?? [];
                 for (const el of els) {
                   cur.push(el);
@@ -264,6 +283,7 @@ export function ScoreView(props: ScoreViewProps) {
       }
     }
     noteEls.current = notes;
+    groupEls.current = groups;
     elToNote.current = back;
     measureBoxes.current = boxes;
     // colour fingering digits by hand: tag every staff line group with the hand that plays it
@@ -322,6 +342,25 @@ export function ScoreView(props: ScoreViewProps) {
     for (const el of next) if (!highlighted.current.has(el)) el.classList.add('lp-on');
     highlighted.current = next;
   }, [activeIds, layout]);
+
+  // differences from the base pattern
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    host.querySelectorAll('.lp-diff, .lp-diff-rhythm, .lp-diff-base').forEach((el) => el.classList.remove('lp-diff', 'lp-diff-rhythm', 'lp-diff-base'));
+    host.querySelectorAll('.lp-dim').forEach((el) => el.classList.remove('lp-dim'));
+    const mark = (ids: ReadonlySet<number> | undefined, cls: string) =>
+      ids?.forEach((id) => noteEls.current.get(id)?.forEach((el) => el.classList.add(cls)));
+    mark(diffIds, 'lp-diff');
+    mark(rhythmIds, 'lp-diff-rhythm');
+    mark(markIds, 'lp-diff-base');
+    if (dimIds?.size) {
+      // fade a chord / note group only when all of its notes are unchanged
+      const notesOfGroup = new Map<Element, number[]>();
+      for (const [id, els] of groupEls.current) for (const g of els) notesOfGroup.set(g, [...(notesOfGroup.get(g) ?? []), id]);
+      for (const [g, ids] of notesOfGroup) if (ids.every((id) => dimIds.has(id))) g.classList.add('lp-dim');
+    }
+  }, [diffIds, rhythmIds, markIds, dimIds, layout]);
 
   // selected note (fingering editor)
   useEffect(() => {
@@ -383,16 +422,19 @@ export function ScoreView(props: ScoreViewProps) {
       {status === 'error' && <div className="score-error">Не удалось отрисовать ноты: {error}</div>}
       <div ref={hostRef} className="score-host" />
       {overlays.map((o, i) => {
-        const color = BLOCK_COLORS[o.block % BLOCK_COLORS.length];
-        const isCurrent = o.block === currentBlock;
+        const b = blocks![o.block];
+        const color = familyColor(b.family);
+        const isCurrent = currentBlock === o.block;
         const isLearned = learned?.has(o.block);
+        const what =
+          b.role === 'base' ? 'паттерн' : b.role === 'variation' ? `вариация (совпадает на ${Math.round(b.similarity * 100)}%)` : 'повтор';
         return (
           <button
             key={i}
             type="button"
-            className={`block-overlay ${isCurrent ? 'current' : ''} ${isLearned ? 'learned' : ''}`}
+            className={`block-overlay role-${b.role} ${isCurrent ? 'current' : ''} ${isLearned ? 'learned' : ''}`}
             style={{ left: o.left, top: o.top, width: o.width, height: o.height, ['--block-color' as string]: color }}
-            title={`Блок ${o.block + 1}: такты ${score.measures[blocks![o.block].startMeasure].number}–${score.measures[blocks![o.block].endMeasure].number}. Нажмите, чтобы открыть шаг гайда`}
+            title={`${b.label} — ${what}, такты ${score.measures[b.startMeasure].number}–${score.measures[b.endMeasure].number}. Нажмите, чтобы открыть шаг гайда`}
             onClick={(e) => {
               e.stopPropagation();
               onBlockClick?.(o.block);
@@ -401,7 +443,7 @@ export function ScoreView(props: ScoreViewProps) {
             {o.first && (
               <span className="block-badge">
                 {isLearned ? '✓ ' : ''}
-                {o.block + 1}
+                {b.label}
               </span>
             )}
           </button>

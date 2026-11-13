@@ -350,10 +350,10 @@ export function HomePage() {
                   <div className="piece-composer">{p.composer || ' '}</div>
                   <div className="piece-meta">
                     {p.measureCount ? `${p.measureCount} тактов` : ''}
-                    {total ? ` · ${total} блоков` : ''}
+                    {total ? ` · ${total} шагов` : ''}
                   </div>
                   {total > 0 && (
-                    <div className="mini-progress" title={`Выучено блоков: ${learned} из ${total}`}>
+                    <div className="mini-progress" title={`Выучено шагов: ${learned} из ${total}`}>
                       <div style={{ width: `${Math.round((learned / total) * 100)}%` }} />
                     </div>
                   )}
