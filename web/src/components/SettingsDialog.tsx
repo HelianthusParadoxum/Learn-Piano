@@ -54,7 +54,7 @@ export function SettingsDialog(props: {
         </label>
 
         <div className="field">
-          <span>Размер блоков</span>
+          <span>Размер фрагментов</span>
           <div className="seg">
             {(['auto', 1, 2, 4, 8] as const).map((v) => (
               <button key={String(v)} className={s.blockSize === v ? 'on' : ''} onClick={() => onChange({ ...s, blockSize: v })}>

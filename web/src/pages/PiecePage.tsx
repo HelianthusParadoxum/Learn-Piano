@@ -122,7 +122,7 @@ export function PiecePage({ route }: { route: Route }) {
           </div>
         </div>
         <div className="piece-header-side">
-          <div className="overall-progress" title="Выученные блоки">
+          <div className="overall-progress" title="Выученные шаги">
             <div className="overall-label">
               Выучено шагов: {learned.size} из {steps.length}
             </div>

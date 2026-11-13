@@ -118,9 +118,9 @@ export function Transport(p: TransportProps) {
           отсчёт такта
         </label>
         {p.onWithPrev && p.canWithPrev && (
-          <label className="check" title="Сыграть предыдущий блок и этот подряд — тренировка «стыка»">
+          <label className="check" title="Сыграть предыдущий фрагмент и этот подряд — тренировка «стыка»">
             <input type="checkbox" checked={!!p.withPrev} onChange={(e) => p.onWithPrev!(e.target.checked)} />
-            с предыдущим блоком
+            с предыдущим фрагментом
           </label>
         )}
       </div>

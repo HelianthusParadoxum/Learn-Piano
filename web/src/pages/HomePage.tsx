@@ -228,16 +228,16 @@ export function HomePage() {
     <div className="home">
       <section className="hero">
         <div className="hero-text">
-          <h1>Разучите пьесу по нотам — блок за блоком</h1>
+          <h1>Разучите пьесу по нотам — паттерн за паттерном</h1>
           <p>
             Загрузите PDF или фото нот. {IS_ARTIFACT ? 'Claude распознает ноты, а приложение' : 'Приложение распознает их,'}{' '}
-            разделит пьесу на небольшие фразы, подберёт аппликатуру и покажет на клавиатуре, как играть каждый блок. Каждый
-            блок можно прослушать в удобном темпе.
+            найдёт в пьесе повторяющиеся паттерны и их вариации, подберёт аппликатуру и покажет на клавиатуре, как играть
+            каждый фрагмент. В вариациях подсвечено только то, что отличается от уже выученного паттерна.
           </p>
           <ol className="hero-steps">
             <li><b>Загрузка</b> — PDF или MusicXML</li>
-            <li><b>Гайд</b> — шаги по блокам с пальцами</li>
-            <li><b>Вся пьеса</b> — карта блоков, переход к любому шагу</li>
+            <li><b>Гайд</b> — паттерны, затем их вариации, с пальцами</li>
+            <li><b>Вся пьеса</b> — структура «A A′ B…», переход к любому шагу</li>
           </ol>
         </div>
         <div
@@ -367,7 +367,7 @@ export function HomePage() {
       {toDelete && (
         <ConfirmDialog
           title={`Удалить «${toDelete.title}»?`}
-          text="Пьеса, ваша аппликатура и отметки о выученных блоках будут удалены из этого браузера."
+          text="Пьеса, ваша аппликатура и отметки о выученных шагах будут удалены из этого браузера."
           confirmLabel="Удалить"
           danger
           onConfirm={() => void remove(toDelete)}
@@ -450,7 +450,7 @@ const STAGE_RU: Record<string, string> = {
   RHYTHMS: 'Ритм',
   PAGE: 'Сборка страницы',
   EXPORT: 'Экспорт MusicXML',
-  import: 'Анализ: блоки и аппликатура',
+  import: 'Анализ: паттерны и аппликатура',
 };
 
 function ClaudeProgress({ job, elapsed }: { job: JobView; elapsed: number }) {
@@ -469,7 +469,7 @@ function ClaudeProgress({ job, elapsed }: { job: JobView; elapsed: number }) {
         <div className="progress-fill" style={{ width: `${Math.round(pct)}%` }} />
       </div>
       <div className="job-stage">
-        {job.phase === 'import' ? 'Анализ: блоки и аппликатура' : c?.message ?? 'Подготовка…'}
+        {job.phase === 'import' ? 'Анализ: паттерны и аппликатура' : c?.message ?? 'Подготовка…'}
         {c && c.measures > 0 ? ` · тактов: ${c.measures}` : ''}
       </div>
       <div className="muted small">
