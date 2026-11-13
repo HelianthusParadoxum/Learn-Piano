@@ -5,6 +5,9 @@ import type { Guide } from '../lib/piece';
 import { saveFile } from '../lib/platform';
 import type { PieceRecord } from '../lib/storage';
 
+/** Similarity thresholds offered for patterns (share of matching notes). */
+const THRESHOLDS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] as const;
+
 export function SettingsDialog(props: {
   rec: PieceRecord;
   guide: Guide;
@@ -80,18 +83,36 @@ export function SettingsDialog(props: {
         </div>
 
         <div className="field">
-          <span>Насколько похожими должны быть фрагменты, чтобы считаться одним паттерном</span>
+          <span>
+            Насколько похожими должны быть фрагменты, чтобы считаться одним паттерном (по умолчанию{' '}
+            {Math.round(DEFAULT_THRESHOLD * 100)}%)
+          </span>
           <div className="seg">
-            {([0.5, 0.6, 0.7, 0.8, 0.9] as const).map((v) => (
-              <button key={v} className={(s.threshold ?? DEFAULT_THRESHOLD) === v ? 'on' : ''} onClick={() => onChange({ ...s, threshold: v })}>
-                {Math.round(v * 100)}%{v === DEFAULT_THRESHOLD ? ' (по умолчанию)' : v === 0.9 ? ' — только почти точные' : ''}
+            {THRESHOLDS.map((v) => (
+              <button
+                key={v}
+                className={(s.threshold ?? DEFAULT_THRESHOLD) === v ? 'on' : ''}
+                onClick={() => onChange({ ...s, threshold: v })}
+                title={
+                  v === THRESHOLDS[0]
+                    ? 'Объединяет даже заметно разные фрагменты'
+                    : v === DEFAULT_THRESHOLD
+                      ? 'По умолчанию'
+                      : v === 0.9
+                        ? 'Только почти точные повторы'
+                        : undefined
+                }
+              >
+                {Math.round(v * 100)}%
               </button>
             ))}
           </div>
           <small className="muted">
             Фрагменты одной руки, совпадающие хотя бы на этот процент нот, объединяются в паттерн: вы учите основу, а в
-            вариациях — только выделенные отличия. Чем ниже порог, тем меньше паттернов и больше вариаций. Тот же рисунок от
-            другой ноты (транспонированный) засчитывается не ниже чем при {Math.round(MIN_SHIFTED * 100)}% совпадения.
+            вариациях — только выделенные отличия. Чем ниже порог, тем меньше паттернов и больше вариаций: при 20–40% одним
+            паттерном считаются и фрагменты, у которых совпадает лишь часть нот (у таких вариаций много отличий), при 90% —
+            только почти точные повторы. Тот же рисунок от другой ноты (транспонированный) засчитывается не ниже чем при{' '}
+            {Math.round(MIN_SHIFTED * 100)}% совпадения, а при одинаковом ритме — по порогу.
           </small>
         </div>
 

@@ -10,8 +10,9 @@
  *     same position in the fragment (± 1/24 of a quarter), same pitch after the best transposition
  *     (chromatic, or along the scale for sequences). A note whose length differs counts ¾.
  *     Similarity = 2·matches / (notes in both fragments) (the Dice coefficient).
- *  2. Fragments are one pattern when they are at least `threshold` similar (50 % by default); a match
- *     from another note (transposed) needs at least 60 % and must cover every measure of the fragment.
+ *  2. Fragments are one pattern when they are at least `threshold` similar (50 % by default, 20–90 %); a
+ *     match from another note (transposed) needs at least 60 % and must cover every measure of the fragment.
+ *     A threshold below 50 % only groups fragments: the piece is cut with 50 %.
  *  3. Segmentation of each hand: pairs of repeating fragments of a learnable size are chosen greedily
  *     (longer, closer and phrase-aligned pairs first) as anchors; the remaining measures are split at
  *     phrase boundaries by dynamic programming. Long silences of a hand are not fragments. Two patterns
@@ -655,15 +656,18 @@ function analyzeHand(
   const cache = new FragmentCache(score, hand);
   if (!score.notes.some((n) => n.hand === hand && !n.grace)) return;
   const first = firstFullMeasure(score);
+  // Where fragments begin is decided by fragments that are really alike: below the default threshold
+  // (a fifth of the notes, say) passages in one key match by chance. A looser threshold only groups the
+  // fragments into fewer patterns.
+  const cut = Math.max(threshold, DEFAULT_THRESHOLD);
   const ranges: HandRange[] =
     mode === 'auto'
-      ? handRanges(score, cache, bounds, threshold)
+      ? handRanges(score, cache, bounds, cut)
       : fixedRanges(bounds.slice(first), mode).map(([a, b]) => ({ a: a + first, b: b + first, rest: cache.size(a + first, b - a + 1) === 0 }));
   const parts = ranges.filter((r) => !r.rest && cache.size(r.a, r.b - r.a + 1) > 0);
-  const { frags, groups } =
-    mode === 'auto'
-      ? joinCompanions(cache, absorbTiny(cache, parts, bounds), bounds, threshold, first)
-      : { frags: parts, groups: groupFragments(cache, parts, threshold) };
+  const joined = mode === 'auto' ? joinCompanions(cache, absorbTiny(cache, parts, bounds), bounds, cut, first) : null;
+  const frags = joined ? joined.frags : parts;
+  const groups = joined && cut === threshold ? joined.groups : groupFragments(cache, frags, threshold);
 
   const mine: Block[] = [];
   for (const r of frags) {

@@ -46,6 +46,24 @@ describe('pattern analysis, separately for each hand', () => {
     );
   });
 
+  it('a looser threshold, down to 20 %, only merges patterns: the fragments stay where they are', () => {
+    for (const name of ['ode-to-joy.musicxml', 'minuet-in-g.musicxml', 'twinkle.musicxml', 'upbeat-song.musicxml']) {
+      const base = describeStructure(name);
+      let patterns = base.families.length;
+      for (const threshold of [0.4, 0.3, 0.2]) {
+        const loose = describeStructure(name, threshold);
+        expect(loose.blocks.map((b) => [b.hand, b.start, b.end])).toEqual(base.blocks.map((b) => [b.hand, b.start, b.end]));
+        expect(loose.families.length).toBeLessThanOrEqual(patterns);
+        // a variation matches its base at least by the threshold
+        expect(loose.blocks.filter((b) => b.role === 'variation').every((b) => b.similarity >= threshold - 1e-9)).toBe(true);
+        patterns = loose.families.length;
+      }
+    }
+    // the left hand of Twinkle: bars 5–8 share about a third of their notes with bars 1–4
+    expect(describeStructure('twinkle.musicxml', 0.3).labels('L')).toEqual(['a', 'a′', 'a']);
+    expect(describeStructure('minuet-in-g.musicxml', 0.2).labels('L')).toEqual(['a', 'a′']);
+  });
+
   it('recognises a melody repeated over a new accompaniment as the same right-hand pattern', () => {
     const minuet = describeStructure('minuet-in-g.musicxml');
     // bars 9–12 repeat bars 1–4 in the right hand exactly; the left hand is different there

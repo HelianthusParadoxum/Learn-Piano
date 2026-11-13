@@ -193,7 +193,7 @@ export interface PieceSettings {
   handSize: 'small' | 'medium' | 'large';
   noteNames: 'solfege' | 'latin';
   /**
-   * How similar two fragments of a hand must be to count as one pattern (0.5…0.9), when chosen in the
+   * How similar two fragments of a hand must be to count as one pattern (0.2…0.9), when chosen in the
    * settings; otherwise DEFAULT_THRESHOLD. (An older `similarity` field holds the former default and is
    * ignored.)
    */
