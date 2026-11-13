@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { HandMode } from '../lib/audio';
 import { isBlackKey, moveArrow } from '../lib/fingering';
-import type { Hand, MeasureInfo, NoteEvent } from '../lib/model';
+import type { FingerMove, Hand, MeasureInfo, NoteEvent } from '../lib/model';
 import { keyCenter, whiteKeyCount, type KeyboardRange } from './Keyboard';
 
 const DIFF_COLORS: [string, string] = ['#c026d3', '#f5d0fe'];
@@ -24,7 +24,7 @@ export function PianoRoll(props: {
   /** notes that differ from the base pattern */
   diffIds?: ReadonlySet<number>;
   /** finger moves to mark (default: the moves in the whole piece) */
-  moves?: ReadonlyMap<number, 1 | -1>;
+  moves?: ReadonlyMap<number, FingerMove>;
 }) {
   const { notes, range, position, windowQ, hands, measures, rangeEnd, height = 200, diffIds, moves } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);

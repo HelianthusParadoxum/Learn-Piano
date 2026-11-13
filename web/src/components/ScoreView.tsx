@@ -1,6 +1,6 @@
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { useEffect, useRef, useState } from 'react';
-import type { Block, Hand, Score } from '../lib/model';
+import type { Block, FingerMove, Hand, Score } from '../lib/model';
 import { loadOsmd } from '../lib/osmdLoader';
 
 export interface ScoreViewProps {
@@ -37,7 +37,7 @@ export interface ScoreViewProps {
    * Finger move arrows to show (note id → direction). Default: every move in the whole piece. A step
    * passes the moves of its own stretch: the first press of each finger there is the starting position.
    */
-  moveMarks?: ReadonlyMap<number, 1 | -1>;
+  moveMarks?: ReadonlyMap<number, FingerMove>;
 }
 
 interface Overlay {
@@ -345,9 +345,9 @@ export function ScoreView(props: ScoreViewProps) {
     measureBoxes.current = boxes;
     staffBoxes.current = bands;
     entryPos.current = entries;
-    // finger move marks ("3›"): raise the chevron to the middle of the digit — fonts draw it lower
+    // finger move marks ("3›", "3»"): raise the chevron to the middle of the digit — fonts draw it lower
     host.querySelectorAll('.osmd-fingering text').forEach((t) => {
-      const m = /^(\d)([‹›])$/.exec(t.textContent ?? '');
+      const m = /^(\d)([‹›«»])$/.exec(t.textContent ?? '');
       if (!m) return;
       t.textContent = m[1];
       const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');

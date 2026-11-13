@@ -189,7 +189,7 @@ export function FullScoreView(props: {
       <div className="full-legend">
         <span>
           Рамки вокруг верхнего нотоносца — паттерны правой руки (A, B…), вокруг нижнего — левой (a, b…). Один цвет — один паттерн,
-          штрих (A′, a′) — вариация. <b>3›</b> / <b>3‹</b> — палец встаёт на другую клавишу, чем в прошлый раз (правее / левее).
+          штрих (A′, a′) — вариация. <b>3›</b> / <b>3‹</b> — палец встаёт на клавишу правее / левее, чем в прошлый раз (на полтона или тон), <b>3»</b> / <b>3«</b> — дальше.
         </span>
         <label className="check">
           <input type="checkbox" checked={showDiff} onChange={(e) => setShowDiff(e.target.checked)} />

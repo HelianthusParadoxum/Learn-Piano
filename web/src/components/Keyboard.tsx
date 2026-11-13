@@ -1,5 +1,5 @@
 import { isBlackKey, keyPosition } from '../lib/fingering';
-import type { Hand } from '../lib/model';
+import type { FingerMove, Hand } from '../lib/model';
 import { midiLabel, type NameStyle } from '../lib/noteNames';
 
 export interface KeyMark {
@@ -7,8 +7,16 @@ export interface KeyMark {
   finger?: number;
   /** the note differs from the base pattern */
   diff?: boolean;
-  /** the finger presses another key than last time: 1 right, -1 left */
-  move?: 1 | -1;
+  /** the finger presses another key than last time: the sign is the direction, 2 — more than a tone away */
+  move?: FingerMove;
+}
+
+/** One triangle beside a finger badge for a move of up to a tone, two for a longer one. */
+function moveTriangles(cx: number, cy: number, move: FingerMove, small: boolean): string {
+  const dir = Math.sign(move);
+  const gap = small ? 9 : 11;
+  const triangle = (from: number, w: number) => `M ${cx + dir * from} ${cy - 4} l ${dir * w} 4 l ${-dir * w} 4 z`;
+  return Math.abs(move) === 1 ? triangle(gap, 5) : `${triangle(gap - 1, 4)} ${triangle(gap + 3.5, 4)}`;
 }
 
 export interface KeyboardRange {
@@ -62,25 +70,21 @@ export function Keyboard(props: {
   const width = whites.length * WW;
   const x0 = keyPosition(range.low);
 
-  const fingerBadge = (cx: number, cy: number, mark: KeyMark, small = false) => (
-    <g className={`finger-badge hand-${mark.hand ?? 'x'} ${mark.diff ? 'diff' : ''} ${mark.move ? 'moved' : ''}`}>
+  const fingerBadge = (key: string, cx: number, cy: number, mark: KeyMark, small = false) => (
+    <g key={key} className={`finger-badge hand-${mark.hand ?? 'x'} ${mark.diff ? 'diff' : ''} ${mark.move ? 'moved' : ''}`}>
       <circle cx={cx} cy={cy} r={small ? 7.5 : 9} />
       <text x={cx} y={cy + (small ? 3.6 : 4.2)} textAnchor="middle">
         {mark.finger ?? ''}
       </text>
       {mark.move && (
-        // the finger came from another key: an arrow on the side it moved towards
-        <path
-          className="finger-move"
-          d={
-            mark.move > 0
-              ? `M ${cx + (small ? 9 : 11)} ${cy - 4} l 5 4 l -5 4 z`
-              : `M ${cx - (small ? 9 : 11)} ${cy - 4} l -5 4 l 5 4 z`
-          }
-        />
+        // the finger came from another key: an arrow on the side it moved towards, two for a long move
+        <path className="finger-move" d={moveTriangles(cx, cy, mark.move, small)} />
       )}
     </g>
   );
+
+  // finger badges are drawn over all keys: a black key must not hide the move mark of a white key next to it
+  const badges: React.ReactElement[] = [];
 
   return (
     <svg className="keyboard" viewBox={`0 0 ${width} ${WH + 2}`} preserveAspectRatio="none" role="img" aria-label="Клавиатура">
@@ -89,6 +93,8 @@ export function Keyboard(props: {
         const a = active.get(m);
         const mark = marks?.get(m);
         const isC = ((m % 12) + 12) % 12 === 0;
+        const badge = a?.finger ? a : !a && mark?.finger ? mark : undefined;
+        if (badge) badges.push(fingerBadge(`w${m}`, x + WW / 2, WH - 42, badge));
         return (
           <g key={m} onClick={() => onKeyClick?.(m)} className="key-group">
             <rect
@@ -107,8 +113,6 @@ export function Keyboard(props: {
                 {Math.floor(m / 12) - 1}
               </text>
             )}
-            {a?.finger && fingerBadge(x + WW / 2, WH - 42, a)}
-            {!a && mark?.finger && fingerBadge(x + WW / 2, WH - 42, mark)}
           </g>
         );
       })}
@@ -116,6 +120,8 @@ export function Keyboard(props: {
         const cx = (keyPosition(m) - x0 + 0.5) * WW;
         const a = active.get(m);
         const mark = marks?.get(m);
+        const badge = a?.finger ? a : !a && mark?.finger ? mark : undefined;
+        if (badge) badges.push(fingerBadge(`b${m}`, cx, BH - 13, badge, true));
         return (
           <g key={m} onClick={() => onKeyClick?.(m)} className="key-group">
             <rect
@@ -126,12 +132,13 @@ export function Keyboard(props: {
               rx={2}
               className={`key black ${a ? `pressed hand-${a.hand ?? 'x'}` : mark ? `marked hand-${mark.hand ?? 'x'}` : ''}`}
             />
-            {(a?.finger || (!a && mark?.finger)) && fingerBadge(cx, BH - 13, (a ?? mark)!, true)}
-            {(a || mark) && !(a?.finger || mark?.finger) && null}
             <title>{midiLabel(m, nameStyle, preferFlats)}</title>
           </g>
         );
       })}
+      <g className="key-badges" pointerEvents="none">
+        {badges}
+      </g>
     </svg>
   );
 }

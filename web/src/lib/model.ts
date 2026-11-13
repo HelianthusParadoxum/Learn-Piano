@@ -10,6 +10,9 @@ export interface TieContinuation {
   onset: number;
 }
 
+/** A finger's move to another key: the sign is the direction, 1 — up to a tone away, 2 — further. */
+export type FingerMove = -2 | -1 | 1 | 2;
+
 export interface NoteEvent {
   id: number;
   midi: number;
@@ -40,10 +43,11 @@ export interface NoteEvent {
   finger?: number;
   fingerSource?: 'auto' | 'score' | 'user' | 'pattern';
   /**
-   * The finger presses another key than the last time it was used (in this hand): 1 — a key further
-   * right (higher), -1 — further left (lower). Unset for the first use of a finger and for the same key.
+   * The finger presses another key than the last time it was used (in this hand): the sign is the
+   * direction (+ further right, higher; − further left, lower), 1 a semitone or a tone away, 2 further.
+   * Unset for the first use of a finger and for the same key.
    */
-  fingerMove?: 1 | -1;
+  fingerMove?: FingerMove;
   /** Stable key used to persist user fingering overrides. */
   key: string;
   dotted: boolean;

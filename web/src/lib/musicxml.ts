@@ -1,4 +1,5 @@
 import { strFromU8, unzipSync } from 'fflate';
+import { fingerLabel } from './fingering';
 import {
   EPS,
   type Hand,
@@ -639,8 +640,9 @@ export const NOTE_CHILD_ORDER = [
 /**
  * Returns a copy of the document with <fingering> elements set for every note that has a finger.
  * Notes are matched by document order index. With `moveMarks` a finger that lands on another key than
- * the last time it was used gets a chevron after its number ("3›", "3‹": first which finger, then where
- * it goes) — for display only: other programs expect plain digits.
+ * the last time it was used gets a chevron after its number ("3›", "3‹"; "3»", "3«" for a move longer
+ * than a tone: first which finger, then where it goes) — for display only: other programs expect plain
+ * digits.
  */
 export function withFingerings(doc: XMLDocument, notes: NoteEvent[], moveMarks = false): XMLDocument {
   const clone = doc.cloneNode(true) as XMLDocument;
@@ -649,7 +651,7 @@ export function withFingerings(doc: XMLDocument, notes: NoteEvent[], moveMarks =
     if (!n.finger || n.xmlIndex < 0) continue;
     const el = els[n.xmlIndex];
     if (!el) continue;
-    const text = moveMarks && n.fingerMove ? `${n.finger}${n.fingerMove > 0 ? '›' : '‹'}` : String(n.finger);
+    const text = moveMarks ? fingerLabel(n) : String(n.finger);
     setFingering(clone, el, text, n.hand === 'L' ? 'below' : 'above');
   }
   return clone;

@@ -7,7 +7,7 @@
  * penalties and a hand-position stability term (beginners keep a five-finger position as long as possible).
  * A second-order Viterbi search finds the cheapest fingering for each hand over the whole piece.
  */
-import { EPS, type Hand, type NoteEvent } from './model';
+import { EPS, type FingerMove, type Hand, type NoteEvent } from './model';
 
 /** [MinPrac, MinComf, MinRel, MaxRel, MaxComf, MaxPrac] in semitones, right hand, finger pair (a<b). */
 type Span = [number, number, number, number, number, number];
@@ -559,18 +559,32 @@ export function markFingerMoves(notes: NoteEvent[]): void {
       n.fingerMove = undefined;
       if (!n.finger) continue;
       const prev = last.get(n.finger);
-      if (prev !== undefined && prev !== n.midi) n.fingerMove = n.midi > prev ? 1 : -1;
+      if (prev !== undefined) n.fingerMove = fingerMove(prev, n.midi);
       last.set(n.finger, n.midi);
     }
   }
 }
 
-/** Mark of a finger move: a short chevron › (to a key further right), ‹ (further left), '' (none). */
-export function moveArrow(move: NoteEvent['fingerMove']): string {
-  return move === 1 ? '›' : move === -1 ? '‹' : '';
+/** A move of up to this many semitones (to a neighbouring key or one over) gets one chevron, longer ones two. */
+const SHORT_MOVE = 2;
+
+/** The move of a finger from one key to another (undefined: the same key). */
+export function fingerMove(from: number, to: number): FingerMove | undefined {
+  if (from === to) return undefined;
+  return ((Math.abs(to - from) <= SHORT_MOVE ? 1 : 2) * Math.sign(to - from)) as FingerMove;
 }
 
-/** "3›" / "3‹" / "3": the finger first, then where it goes. */
+const ARROWS: Record<FingerMove, string> = { 1: '›', 2: '»', [-1]: '‹', [-2]: '«' };
+
+/**
+ * Mark of a finger move: one chevron for a semitone or a tone (› right, ‹ left), two for a longer move
+ * (», «), '' for none.
+ */
+export function moveArrow(move: FingerMove | undefined): string {
+  return move ? ARROWS[move] : '';
+}
+
+/** "3›" / "3«" / "3": the finger first, then where it goes. */
 export function fingerLabel(n: Pick<NoteEvent, 'finger' | 'fingerMove'>): string {
   if (!n.finger) return '';
   return `${n.finger}${moveArrow(n.fingerMove)}`;
@@ -581,8 +595,8 @@ export function fingerLabel(n: Pick<NoteEvent, 'finger' | 'fingerMove'>): string
  * in the stretch is the hand's starting position, not a move. (Moves inside the stretch are the same as
  * in the whole piece: the stretch is continuous.)
  */
-export function localMoves(notes: NoteEvent[], from: number, to: number): Map<number, 1 | -1> {
-  const out = new Map<number, 1 | -1>();
+export function localMoves(notes: NoteEvent[], from: number, to: number): Map<number, FingerMove> {
+  const out = new Map<number, FingerMove>();
   for (const hand of ['R', 'L'] as Hand[]) {
     const used = new Set<number>();
     const list = notes
