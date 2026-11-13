@@ -1861,3 +1861,12 @@ button.badge {
   border-width: 1.5px;
   border-radius: 5px;
 }
+.finger-badge .finger-move {
+  fill: #0f172a;
+}
+.finger-badge.hand-R .finger-move {
+  fill: var(--R);
+}
+.finger-badge.hand-L .finger-move {
+  fill: var(--L);
+}

@@ -74,6 +74,8 @@ export function ScoreView(props: ScoreViewProps) {
   const measureBoxes = useRef(new Map<number, MeasureBox>());
   /** band of each staff in each measure, keyed "measure|staff" (bands of one system do not overlap) */
   const staffBoxes = useRef(new Map<string, MeasureBox>());
+  /** horizontal place of every note position in a measure and staff, keyed "measure|staff" (pixels) */
+  const entryPos = useRef(new Map<string, { t: number; left: number; right: number }[]>());
   const [overlays, setOverlays] = useState<Overlay[]>([]);
   const [width, setWidth] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -199,6 +201,7 @@ export function ScoreView(props: ScoreViewProps) {
     const back = new Map<Element, number>();
     const boxes = new Map<number, MeasureBox>();
     const bands = new Map<string, MeasureBox>();
+    const entries = new Map<string, { t: number; left: number; right: number }[]>();
     const unit = 10 * osmd.Zoom;
     const host = hostRef.current!;
     const wrap = wrapRef.current!;
@@ -235,6 +238,16 @@ export function ScoreView(props: ScoreViewProps) {
         top = Math.min(top, y);
         bottom = Math.max(bottom, y + 4);
         staves.push({ staff: gm.ParentStaff.idInMusicSheet, x, right: ps.AbsolutePosition.x + ps.Size.width, y });
+        // where each note position (in quarters from the barline) is drawn: frames may start or end inside the measure
+        const list: { t: number; left: number; right: number }[] = [];
+        for (const se of gm.staffEntries) {
+          const t = (se as unknown as { relInMeasureTimestamp?: { RealValue: number } }).relInMeasureTimestamp?.RealValue;
+          const box = se.PositionAndShape;
+          if (t === undefined || !box) continue;
+          list.push({ t: t * 4, left: offX + (box.AbsolutePosition.x + box.BorderLeft) * unit, right: offX + (box.AbsolutePosition.x + box.BorderRight) * unit });
+        }
+        list.sort((a, b) => a.t - b.t);
+        entries.set(`${mIdx}|${gm.ParentStaff.idInMusicSheet}`, list);
       }
       // each staff gets a band: from halfway to the staff above (or room for fingering) to halfway to the one below
       staves.sort((a, b) => a.y - b.y);
@@ -311,6 +324,7 @@ export function ScoreView(props: ScoreViewProps) {
     elToNote.current = back;
     measureBoxes.current = boxes;
     staffBoxes.current = bands;
+    entryPos.current = entries;
     // colour fingering digits by hand: tag every staff line group with the hand that plays it
     const handByStaff = new Map(score.staves.map((st) => [st.staffIndex, st.hand]));
     host.querySelectorAll('g.osmd-staffline').forEach((g) => {
@@ -341,6 +355,16 @@ export function ScoreView(props: ScoreViewProps) {
       const bottom = Math.max(...list.map((x) => x.top + x.height));
       return { left, top, width: right - left, height: bottom - top, system: list[0].system };
     };
+    // x of a position inside a measure: halfway between the last note before it and the first note at it
+    const cutX = (m: number, hand: Hand, q: number, box: MeasureBox): number => {
+      const staff = stavesOf(hand)[0];
+      const list = entryPos.current.get(`${m}|${staff}`) ?? [];
+      const rel = q - score.measures[m].start;
+      const k = list.findIndex((e) => e.t >= rel - 1e-6);
+      if (k < 0) return box.left + box.width;
+      if (k === 0) return Math.max(box.left, list[0].left - 4);
+      return (list[k - 1].right + list[k].left) / 2;
+    };
     for (const b of blocks) {
       let group: MeasureBox[] = [];
       let first = true;
@@ -355,8 +379,17 @@ export function ScoreView(props: ScoreViewProps) {
         group = [];
       };
       for (let m = b.startMeasure; m <= b.endMeasure; m++) {
-        const box = boxOf(m, b.hand);
-        if (!box) continue;
+        const full = boxOf(m, b.hand);
+        if (!full) continue;
+        const mStart = score.measures[m].start;
+        const mEnd = mStart + score.measures[m].length;
+        // a fragment may start with an upbeat and end where the next fragment's upbeat starts
+        let left = full.left;
+        let right = full.left + full.width;
+        if (b.start > mStart + 1e-6) left = cutX(m, b.hand, b.start, full);
+        if (b.end < mEnd - 1e-6) right = cutX(m, b.hand, b.end, full);
+        if (right - left < 4) continue;
+        const box = { ...full, left, width: right - left };
         if (group.length && group[group.length - 1].system !== box.system) flush();
         group.push(box);
       }
@@ -472,7 +505,7 @@ export function ScoreView(props: ScoreViewProps) {
             type="button"
             className={`block-overlay hand-${b.hand} role-${b.role} ${isCurrent ? 'current' : ''} ${isLearned ? 'learned' : ''}`}
             style={{ left: o.left, top: o.top, width: o.width, height: o.height, ['--block-color' as string]: color }}
-            title={`${b.label} (${hand}) — ${what}, такты ${score.measures[b.startMeasure].number}–${score.measures[b.endMeasure].number}. Нажмите, чтобы открыть шаг гайда`}
+            title={`${b.label} (${hand}) — ${what}, такты ${score.measures[b.coreStart ?? b.startMeasure].number}–${score.measures[b.endMeasure].number}${b.start < score.measures[b.coreStart ?? b.startMeasure].start - 1e-6 ? ' с затактом' : ''}. Нажмите, чтобы открыть шаг гайда`}
             onClick={(e) => {
               e.stopPropagation();
               onBlockClick?.(o.block);

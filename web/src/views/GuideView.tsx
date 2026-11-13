@@ -20,6 +20,7 @@ import {
   plural,
   shiftText,
   shortMeasures,
+  shortStretch,
   stepTitle,
   togetherLabels,
   transpositionText,
@@ -61,12 +62,12 @@ export function GuideView(props: Props) {
     let color = '#64748b';
     let badgeClass = '';
     if (st.kind === 'together' || st.kind === 'assemble') {
-      const where = shortMeasures(score, st.startMeasure, st.endMeasure);
+      const where = shortStretch(score, st);
       if (st.kind === 'together') {
         badge = 'П+Л';
         badgeClass = 'both';
         title = 'Двумя руками';
-        sub = `${where} · ${togetherLabels(blocks, st.startMeasure, st.endMeasure)}`;
+        sub = `${where} · ${togetherLabels(blocks, st.start, st.end)}`;
       } else {
         badge = st.whole ? '★' : '⧉';
         title = st.whole ? 'Вся пьеса' : 'Соединяем';
@@ -78,7 +79,7 @@ export function GuideView(props: Props) {
       color = familyColor(b.family);
       badge = b.label;
       badgeClass = `hand-${b.hand} ${st.kind === 'variation' ? 'variant' : ''}`;
-      const where = shortMeasures(score, b.startMeasure, last.endMeasure);
+      const where = shortStretch(score, { ...b, endMeasure: last.endMeasure });
       const who = multiPart ? `${HAND_SHORT[b.hand]} · ` : '';
       if (st.kind === 'pattern') {
         const times = families[b.family].blocks.length;
@@ -119,7 +120,9 @@ export function GuideView(props: Props) {
   } else {
     parts.forEach(([a, b], p) => {
       const items = steps.flatMap((st, i) => (st.part === p && !(st.kind === 'assemble' && st.whole) ? [i] : []));
-      if (items.length) groups.push({ key: `p${p}`, title: `Часть ${p + 1} · ${shortMeasures(score, a, b)}`, items });
+      // a pickup measure is the upbeat of the first part, not a measure of its own
+      const from = a === 0 && score.measures[0]?.implicit && b > 0 ? 1 : a;
+      if (items.length) groups.push({ key: `p${p}`, title: `Часть ${p + 1} · ${shortMeasures(score, from, b)}`, items });
     });
     const whole = steps.flatMap((st, i) => (st.kind === 'assemble' && st.whole ? [i] : []));
     if (whole.length) groups.push({ key: 'whole', title: 'Вся пьеса', items: whole });
@@ -159,20 +162,27 @@ function notesBetween(notes: NoteEvent[], from: number, to: number) {
   return notes.filter((n) => n.hand && n.onset >= from - EPS && n.onset < to - EPS);
 }
 
+/** Notes of measures first…last that lie outside [from, to): shown faded around a fragment. */
+function outsideNotes(notes: NoteEvent[], first: number, last: number, from: number, to: number): number[] {
+  return notes
+    .filter((n) => n.hand && n.measureIndex >= first && n.measureIndex <= last && (n.onset < from - EPS || n.onset >= to - EPS))
+    .map((n) => n.id);
+}
+
 /** The stretch played just before a step ("with the previous fragment"): same hand, or the previous chunk. */
 function previousSpan(guide: Guide, step: GuideStep): { start: number; startMeasure: number; label: string } | null {
   const { blocks, chunks, score } = guide;
   if (step.kind === 'pattern' || step.kind === 'variation') {
     const b = blocks[step.block];
     const prev = blocks[b.index - 1];
-    if (!prev || prev.hand !== b.hand || prev.endMeasure + 1 !== b.startMeasure) return null;
+    if (!prev || prev.hand !== b.hand || Math.abs(prev.end - b.start) > EPS) return null;
     return { start: prev.start, startMeasure: prev.startMeasure, label: b.label };
   }
   if (step.kind === 'together') {
-    const k = chunks.findIndex((c) => c.startMeasure === step.startMeasure);
+    const k = chunks.findIndex((c) => Math.abs(c.start - step.start) < EPS);
     const prev = chunks[k - 1];
-    if (k <= 0 || !prev) return null;
-    return { start: score.measures[prev.startMeasure].start, startMeasure: prev.startMeasure, label: `такта ${score.measures[step.startMeasure].number}` };
+    if (k <= 0 || !prev || Math.abs(prev.end - step.start) > EPS) return null;
+    return { start: prev.start, startMeasure: prev.startMeasure, label: `такта ${score.measures[step.coreStart].number}` };
   }
   return null;
 }
@@ -239,16 +249,19 @@ function StepView(props: Props & { stepIndex: number }) {
   const diffIds = useMemo(() => new Set(isVariation ? block!.diff?.changed ?? [] : []), [isVariation, block]);
   const rhythmIds = useMemo(() => new Set(isVariation ? block!.diff?.rhythm ?? [] : []), [isVariation, block]);
   const markIds = useMemo(() => new Set(isVariation ? block!.diff?.baseUnmatched ?? [] : []), [isVariation, block]);
-  const dimIds = useMemo(
-    () =>
-      isVariation && dimSame
-        ? new Set(
-            rangeNotes
-              .filter((n) => n.hand === hand && n.onset >= block!.start - EPS && !diffIds.has(n.id) && !rhythmIds.has(n.id))
-              .map((n) => n.id),
-          )
-        : undefined,
-    [isVariation, dimSame, rangeNotes, block, hand, diffIds, rhythmIds],
+  const dimIds = useMemo(() => {
+    // whole measures are drawn: notes before the upbeat or after the cut belong to other fragments
+    const set = new Set(outsideNotes(score.notes, firstMeasure, span.endMeasure, from, to));
+    if (isVariation && dimSame) {
+      for (const n of rangeNotes) {
+        if (n.hand === hand && n.onset >= block!.start - EPS && !diffIds.has(n.id) && !rhythmIds.has(n.id)) set.add(n.id);
+      }
+    }
+    return set.size ? set : undefined;
+  }, [score, firstMeasure, span.endMeasure, from, to, isVariation, dimSame, rangeNotes, block, hand, diffIds, rhythmIds]);
+  const baseDimIds = useMemo(
+    () => (base ? new Set(outsideNotes(score.notes, base.startMeasure, base.endMeasure, base.start, base.end)) : undefined),
+    [score, base],
   );
 
   const onsets = useMemo(() => {
@@ -277,7 +290,7 @@ function StepView(props: Props & { stepIndex: number }) {
   const activeIds = useMemo(() => new Set(active.map((n) => n.id)), [active]);
   const activeKeys = useMemo(() => {
     const m = new Map<number, KeyMark>();
-    for (const n of active) m.set(n.midi, { hand: n.hand, finger: n.finger, diff: diffIds.has(n.id) });
+    for (const n of active) m.set(n.midi, { hand: n.hand, finger: n.finger, diff: diffIds.has(n.id), move: n.fingerMove });
     return m;
   }, [active, diffIds]);
   const marks = useMemo(() => {
@@ -426,13 +439,14 @@ function StepView(props: Props & { stepIndex: number }) {
     step.kind === 'together' || step.kind === 'assemble'
       ? HANDS.map((h) => ({
           hand: h,
-          list: blocks.filter((b) => b.hand === h && b.endMeasure >= span.startMeasure && b.startMeasure <= span.endMeasure),
+          list: blocks.filter((b) => b.hand === h && b.end > span.start + EPS && b.start < span.end - EPS),
         })).filter((x) => x.list.length)
       : [];
   const pianoHint = (
     <>
       Цифры — пальцы{hand ? '' : <>: <b className="t-R">синие</b> — правая рука, <b className="t-L">оранжевые</b> — левая</>} (1 — большой … 5 —
-      мизинец). Нажмите на ноту, чтобы поменять палец.
+      мизинец); <b>→3</b> / <b>←3</b> — палец встаёт на другую клавишу, чем в прошлый раз (правее / левее). Нажмите на ноту,
+      чтобы поменять палец.
       {userOverrides > 0 && ` Изменено вами: ${userOverrides}.`}
     </>
   );
@@ -509,6 +523,7 @@ function StepView(props: Props & { stepIndex: number }) {
             zoom={0.85}
             activeIds={activeIds}
             markIds={markIds}
+            dimIds={baseDimIds}
             focusHand={hand}
           />
         </div>
@@ -687,7 +702,7 @@ function StepView(props: Props & { stepIndex: number }) {
               <h3>Секвенция</h3>
               <p className="sequence-note">
                 Сразу после {block.label} тот же рисунок повторяется от других нот:{' '}
-                {sequence.map((b) => `${shortMeasures(score, b.startMeasure, b.endMeasure)} — ${shiftText(b)}`).join('; ')}. Рука
+                {sequence.map((b) => `${shortStretch(score, b)} — ${shiftText(b)}`).join('; ')}. Рука
                 сохраняет форму и аппликатуру и просто сдвигается.
               </p>
             </>
@@ -727,7 +742,7 @@ function StepView(props: Props & { stepIndex: number }) {
                       onClick={() => onStep(stepOfBlock(steps, blocks, b.index) + 1)}
                       title="Открыть шаг, где этот паттерн разучивается"
                     >
-                      {b.label} · {shortMeasures(score, b.startMeasure, b.endMeasure)}
+                      {b.label} · {shortStretch(score, b)}
                     </button>
                   ))}
                 </div>

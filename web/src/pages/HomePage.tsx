@@ -18,6 +18,7 @@ const EXAMPLES = [
   { file: 'twinkle.musicxml', title: 'Ах, скажу я вам, мама (Twinkle)', composer: 'Народная песня', level: 'аккорды в левой руке' },
   { file: 'minuet-in-g.musicxml', title: 'Менуэт соль мажор', composer: 'К. Петцольд', level: 'первые пьесы' },
   { file: 'c-major-scale.musicxml', title: 'Гамма до мажор', composer: 'Упражнение', level: 'подкладывание пальцев' },
+  { file: 'upbeat-song.musicxml', title: 'Песенка с затактом', composer: 'Учебная пьеса', level: 'фразы с затакта' },
 ];
 
 interface JobView {

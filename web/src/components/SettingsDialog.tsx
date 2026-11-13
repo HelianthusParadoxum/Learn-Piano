@@ -134,7 +134,7 @@ export function SettingsDialog(props: {
         <div className="field">
           <span>Экспорт</span>
           <div className="row-actions">
-            <button className="btn outline small" onClick={() => void download(guide.renderXml, `${safeName}.musicxml`, 'application/vnd.recordare.musicxml+xml')}>
+            <button className="btn outline small" onClick={() => void download(guide.exportXml, `${safeName}.musicxml`, 'application/vnd.recordare.musicxml+xml')}>
               MusicXML с аппликатурой
             </button>
             <button className="btn outline small" onClick={() => void download(rec.musicXml, `${safeName} (распознано).musicxml`, 'application/vnd.recordare.musicxml+xml')}>

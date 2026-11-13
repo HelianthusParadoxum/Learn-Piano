@@ -5,7 +5,7 @@ import { buildGuide, stepKey, stepSpan } from '../web/src/lib/piece';
 import { loadExample } from './helpers';
 
 describe('segmentation', () => {
-  it("covers every measure where a hand plays, in order and without overlaps, in every mode", () => {
+  it('covers every note of a hand with its fragments, in order and without overlaps, in every mode', () => {
     for (const f of ['ode-to-joy.musicxml', 'minuet-in-g.musicxml', 'c-major-scale.musicxml', 'twinkle.musicxml']) {
       const s = loadExample(f);
       for (const mode of ['auto', 1, 2, 4, 8] as const) {
@@ -14,14 +14,18 @@ describe('segmentation', () => {
           const mine = blocks.filter((b) => b.hand === hand);
           let prevEnd = -1;
           for (const b of mine) {
-            expect(b.startMeasure).toBeGreaterThan(prevEnd);
-            expect(b.endMeasure).toBeGreaterThanOrEqual(b.startMeasure);
+            // a fragment may start with an upbeat inside the previous measure, right where the previous one ends
+            expect(b.start).toBeGreaterThanOrEqual(prevEnd - 1e-6);
+            expect(b.end).toBeGreaterThan(b.start);
+            expect(b.endMeasure).toBeGreaterThanOrEqual(b.coreStart ?? b.startMeasure);
             expect(families[b.family].blocks).toContain(b.index);
             expect(families[b.family].hand).toBe(hand);
-            prevEnd = b.endMeasure;
+            prevEnd = b.end;
           }
-          const covered = new Set(mine.flatMap((b) => Array.from({ length: b.endMeasure - b.startMeasure + 1 }, (_, k) => b.startMeasure + k)));
-          for (const n of s.notes) if (n.hand === hand && !n.grace) expect(covered.has(n.measureIndex)).toBe(true);
+          for (const n of s.notes) {
+            if (n.hand !== hand || n.grace) continue;
+            expect(mine.some((b) => n.onset >= b.start - 1e-6 && n.onset < b.end - 1e-6)).toBe(true);
+          }
         }
       }
     }

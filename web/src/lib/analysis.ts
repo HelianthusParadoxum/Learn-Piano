@@ -66,12 +66,14 @@ function eventsOf(notes: NoteEvent[]): Ev[] {
   return out;
 }
 
-/** A stretch of the piece analysed for a guide step. */
+/** A stretch of the piece analysed for a guide step: [start, end) in quarters, in measures startMeasure…endMeasure. */
 export interface Span {
   startMeasure: number;
   endMeasure: number;
   start: number;
   end: number;
+  /** first full measure (startMeasure holds only an upbeat if they differ) */
+  coreStart?: number;
 }
 
 export type StepKind = 'pattern' | 'variation' | 'together' | 'assemble';
@@ -187,6 +189,15 @@ export function analyzeSpan(score: Score, block: Span, kind: StepKind = 'pattern
         text: `${HAND_RU[hand]} играет двойные ноты (интервалы) — следите, чтобы обе клавиши звучали ровно вместе.`,
       });
     }
+  }
+
+  // fingers placed on another key than last time (marked with arrows in the notes)
+  const moved = inBlock.filter((n) => n.fingerMove).length;
+  if (moved) {
+    tips.push({
+      kind: 'position',
+      text: `Стрелка перед номером пальца (→3, ←3) — палец встаёт на другую клавишу, чем в прошлый раз (правее или левее): здесь таких мест ${moved}. Посмотрите на них заранее — там рука смещается или палец переставляется.`,
+    });
   }
 
   // key signature and accidentals

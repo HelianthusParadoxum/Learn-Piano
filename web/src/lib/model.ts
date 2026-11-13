@@ -39,6 +39,11 @@ export interface NoteEvent {
   /** Final finger used in the guide. */
   finger?: number;
   fingerSource?: 'auto' | 'score' | 'user' | 'pattern';
+  /**
+   * The finger presses another key than the last time it was used (in this hand): 1 — a key further
+   * right (higher), -1 — further left (lower). Unset for the first use of a finger and for the same key.
+   */
+  fingerMove?: 1 | -1;
   /** Stable key used to persist user fingering overrides. */
   key: string;
   dotted: boolean;
@@ -108,11 +113,14 @@ export interface Block {
   index: number;
   /** the hand whose notes this fragment is about */
   hand: Hand;
+  /** measure where the fragment starts (the measure of its upbeat, if it has one) */
   startMeasure: number;
+  /** last measure (the fragment may end before its end, where the next fragment's upbeat starts) */
   endMeasure: number;
+  /** span in quarters: from the upbeat to where the next fragment's upbeat starts */
   start: number;
   end: number;
-  /** first measure compared with other fragments (a leading pickup measure is left out) */
+  /** first full measure; fragments are compared aligned at its barline */
   coreStart?: number;
   /** pattern family (index into the families list) */
   family: number;
@@ -167,12 +175,14 @@ export interface PatternFamily {
  *  - pattern / variation: one hand learns a pattern or a variation of it;
  *  - together: both hands play a chunk for the first time;
  *  - assemble: chunks joined into a longer stretch (`whole` — the entire piece).
+ * Two-hand steps span [start, end) in quarters: from an upbeat (in measure `startMeasure`, before the
+ * first full measure `coreStart`) to where the next chunk's upbeat starts (in measure `endMeasure`).
  */
 export type GuideStep =
   | { kind: 'pattern'; block: number; part: number }
   | { kind: 'variation'; block: number; part: number }
-  | { kind: 'together'; startMeasure: number; endMeasure: number; part: number }
-  | { kind: 'assemble'; startMeasure: number; endMeasure: number; whole: boolean; part: number };
+  | { kind: 'together'; startMeasure: number; coreStart: number; endMeasure: number; start: number; end: number; part: number }
+  | { kind: 'assemble'; startMeasure: number; coreStart: number; endMeasure: number; start: number; end: number; whole: boolean; part: number };
 
 export interface PieceSettings {
   blockSize: 'auto' | 1 | 2 | 4 | 8;

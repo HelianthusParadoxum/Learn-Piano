@@ -7,6 +7,8 @@ export interface KeyMark {
   finger?: number;
   /** the note differs from the base pattern */
   diff?: boolean;
+  /** the finger presses another key than last time: 1 right, -1 left */
+  move?: 1 | -1;
 }
 
 export interface KeyboardRange {
@@ -61,11 +63,22 @@ export function Keyboard(props: {
   const x0 = keyPosition(range.low);
 
   const fingerBadge = (cx: number, cy: number, mark: KeyMark, small = false) => (
-    <g className={`finger-badge hand-${mark.hand ?? 'x'} ${mark.diff ? 'diff' : ''}`}>
+    <g className={`finger-badge hand-${mark.hand ?? 'x'} ${mark.diff ? 'diff' : ''} ${mark.move ? 'moved' : ''}`}>
       <circle cx={cx} cy={cy} r={small ? 7.5 : 9} />
       <text x={cx} y={cy + (small ? 3.6 : 4.2)} textAnchor="middle">
         {mark.finger ?? ''}
       </text>
+      {mark.move && (
+        // the finger came from another key: an arrow on the side it moved towards
+        <path
+          className="finger-move"
+          d={
+            mark.move > 0
+              ? `M ${cx + (small ? 9 : 11)} ${cy - 4} l 5 4 l -5 4 z`
+              : `M ${cx - (small ? 9 : 11)} ${cy - 4} l -5 4 l 5 4 z`
+          }
+        />
+      )}
     </g>
   );
 

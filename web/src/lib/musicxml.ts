@@ -638,21 +638,24 @@ const NOTE_CHILD_ORDER = [
 
 /**
  * Returns a copy of the document with <fingering> elements set for every note that has a finger.
- * Notes are matched by document order index.
+ * Notes are matched by document order index. With `moveMarks` a finger that lands on another key than
+ * the last time it was used gets an arrow before its number ("→3", "←3") — for display only: other
+ * programs expect plain digits.
  */
-export function withFingerings(doc: XMLDocument, notes: NoteEvent[]): XMLDocument {
+export function withFingerings(doc: XMLDocument, notes: NoteEvent[], moveMarks = false): XMLDocument {
   const clone = doc.cloneNode(true) as XMLDocument;
   const els = Array.from(clone.getElementsByTagName('note'));
   for (const n of notes) {
     if (!n.finger || n.xmlIndex < 0) continue;
     const el = els[n.xmlIndex];
     if (!el) continue;
-    setFingering(clone, el, n.finger, n.hand === 'L' ? 'below' : 'above');
+    const text = moveMarks && n.fingerMove ? `${n.fingerMove > 0 ? '→' : '←'}${n.finger}` : String(n.finger);
+    setFingering(clone, el, text, n.hand === 'L' ? 'below' : 'above');
   }
   return clone;
 }
 
-function setFingering(doc: XMLDocument, note: Element, finger: number, placement: string) {
+function setFingering(doc: XMLDocument, note: Element, finger: string, placement: string) {
   let notations = child(note, 'notations');
   if (!notations) {
     notations = doc.createElementNS(note.namespaceURI, 'notations');
@@ -670,7 +673,7 @@ function setFingering(doc: XMLDocument, note: Element, finger: number, placement
     fing = doc.createElementNS(note.namespaceURI, 'fingering');
     technical.appendChild(fing);
   }
-  fing.textContent = String(finger);
+  fing.textContent = finger;
   fing.setAttribute('placement', placement);
 }
 

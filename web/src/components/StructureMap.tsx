@@ -1,5 +1,6 @@
 import type { Block, Hand, PatternFamily, Score } from '../lib/model';
 import { blockMeasures, HAND_NAME, plural, shiftText, structureSummary } from '../lib/patternText';
+import { barlineAt } from '../lib/upbeat';
 import { familyColor } from './ScoreView';
 
 const HANDS: Hand[] = ['R', 'L'];
@@ -24,7 +25,8 @@ export function StructureMap(props: {
   showSummary?: boolean;
 }) {
   const { score, blocks, families, highlight, onBlock, showSummary } = props;
-  const M = Math.max(1, score.measures.length);
+  // positions in time: a fragment that starts with an upbeat begins before its first barline
+  const total = Math.max(1e-6, barlineAt(score, score.measures.length));
   const summary = structureSummary(blocks, families);
   const rows = HANDS.filter((h) => blocks.some((b) => b.hand === h));
   return (
@@ -36,7 +38,7 @@ export function StructureMap(props: {
             {blocks
               .filter((b) => b.hand === hand)
               .map((b) => {
-                const share = (b.endMeasure - b.startMeasure + 1) / M;
+                const share = (b.end - b.start) / total;
                 const size = share < 0.022 ? 'tiny' : share < 0.045 ? 'narrow' : '';
                 return (
                 <button
@@ -44,8 +46,8 @@ export function StructureMap(props: {
                   role="listitem"
                   className={`structure-seg role-${b.role} ${size} ${highlight?.has(b.index) ? 'active' : ''}`}
                   style={{
-                    left: `${(b.startMeasure / M) * 100}%`,
-                    width: `${((b.endMeasure - b.startMeasure + 1) / M) * 100}%`,
+                    left: `${(b.start / total) * 100}%`,
+                    width: `${share * 100}%`,
                     ['--block-color' as string]: familyColor(b.family),
                   }}
                   onClick={() => onBlock(b.index)}
@@ -54,7 +56,7 @@ export function StructureMap(props: {
                   <span className="seg-label">{b.label}</span>
                   {!size && (
                     <span className="seg-measures">
-                      {score.measures[b.startMeasure].number}–{score.measures[b.endMeasure].number}
+                      {score.measures[b.coreStart ?? b.startMeasure].number}–{score.measures[b.endMeasure].number}
                     </span>
                   )}
                 </button>

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { HandMode } from '../lib/audio';
-import { isBlackKey } from '../lib/fingering';
+import { fingerLabel, isBlackKey } from '../lib/fingering';
 import type { Hand, MeasureInfo, NoteEvent } from '../lib/model';
 import { keyCenter, whiteKeyCount, type KeyboardRange } from './Keyboard';
 
@@ -133,7 +133,7 @@ export function PianoRoll(props: {
       ctx.stroke();
       if (n.finger && bottom - top > 12) {
         ctx.fillStyle = sounding || black ? '#fff' : strong;
-        ctx.fillText(String(n.finger), cx, Math.min(bottom - 9, h - 9));
+        ctx.fillText(fingerLabel(n), cx, Math.min(bottom - 9, h - 9));
       }
       ctx.globalAlpha = 1;
     }

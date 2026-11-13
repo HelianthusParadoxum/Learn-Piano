@@ -6,7 +6,7 @@ import { player } from '../lib/audio';
 import { usePersistentState, usePlayerState } from '../lib/hooks';
 import { EPS, type Hand } from '../lib/model';
 import { blocksOfStep, type Guide } from '../lib/piece';
-import { blockOfMeasure } from '../lib/segment';
+import { measureAt } from '../lib/upbeat';
 import { quarterToSeconds } from '../lib/timing';
 
 function fmtTime(sec: number) {
@@ -70,11 +70,16 @@ export function FullScoreView(props: {
   // fragments sounding now (one per hand), or those of the step opened last
   const currentBlocks = useMemo(() => {
     if (currentMeasure !== null) {
-      return new Set((['R', 'L'] as Hand[]).map((h) => blockOfMeasure(blocks, currentMeasure, h)?.index).filter((x): x is number => x !== undefined));
+      // the fragment of each hand that sounds now (fragments may start with an upbeat)
+      return new Set(
+        (['R', 'L'] as Hand[])
+          .map((h) => blocks.find((b) => b.hand === h && pos >= b.start - EPS && pos < b.end - EPS)?.index)
+          .filter((x): x is number => x !== undefined),
+      );
     }
     const st = steps[lastStep];
     return st ? blocksOfStep(blocks, st) : new Set<number>();
-  }, [blocks, steps, currentMeasure, lastStep]);
+  }, [blocks, steps, currentMeasure, pos, lastStep]);
 
   const startPlayback = useCallback(
     (startAt?: number, restart = false) => {
@@ -124,10 +129,14 @@ export function FullScoreView(props: {
   const totalSec = quarterToSeconds(score.tempoMap, to, f);
   const elapsedSec = quarterToSeconds(score.tempoMap, pos, f);
   // stretches for both hands (or the fragments of a one-hand piece) start at these measures
-  const markerMeasures = Array.from(new Set(chunks.length ? chunks.map((c) => c.startMeasure) : blocks.map((b) => b.startMeasure)))
-    .filter((m) => m > 0)
+  const markerStarts = Array.from(new Set((chunks.length ? chunks : blocks).map((c) => c.start)))
+    .filter((q) => q > EPS)
     .sort((a, b) => a - b);
-  const markers = markerMeasures.map((m) => ({ at: score.measures[m].start / to, label: `такт ${score.measures[m].number}` }));
+  const markers = markerStarts.map((q) => {
+    const m = score.measures[measureAt(score, q)];
+    const upbeat = q > m.start + EPS;
+    return { at: q / to, label: upbeat ? `затакт к такту ${score.measures[m.index + 1]?.number ?? m.number}` : `такт ${m.number}` };
+  });
 
   return (
     <section className="full-score">
@@ -180,7 +189,7 @@ export function FullScoreView(props: {
       <div className="full-legend">
         <span>
           Рамки вокруг верхнего нотоносца — паттерны правой руки (A, B…), вокруг нижнего — левой (a, b…). Один цвет — один паттерн,
-          штрих (A′, a′) — вариация.
+          штрих (A′, a′) — вариация. <b>→3</b> / <b>←3</b> — палец встаёт на другую клавишу, чем в прошлый раз (правее / левее).
         </span>
         <label className="check">
           <input type="checkbox" checked={showDiff} onChange={(e) => setShowDiff(e.target.checked)} />

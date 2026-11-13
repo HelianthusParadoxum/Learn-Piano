@@ -4,6 +4,7 @@
  * aware segmentation lives in patterns.ts.
  */
 import { EPS, type Block, type Hand, type NoteEvent, type Score } from './model';
+import { upbeats } from './upbeat';
 
 export type BlockSizeMode = 'auto' | 1 | 2 | 4 | 8;
 
@@ -22,6 +23,8 @@ export function measureBoundaries(score: Score): BoundaryInfo[] {
   const byMeasure: NoteEvent[][] = measures.map(() => []);
   for (const n of notes) if (n.hand) byMeasure[n.measureIndex]?.push(n);
   const melodyHand: Hand = notes.some((n) => n.hand === 'R') ? 'R' : 'L';
+  // a phrase that starts with an upbeat ends before it, not at the barline
+  const up = upbeats(score, melodyHand);
 
   const info: BoundaryInfo[] = [];
   // phrase lengths are counted from the first full measure (a pickup does not count)
@@ -53,19 +56,23 @@ export function measureBoundaries(score: Score): BoundaryInfo[] {
       s += 3;
       hard = true;
     }
-    // phrase ending: long note or rest at the end of the measure in the melody
-    const mel = byMeasure[i].filter((n) => n.hand === melodyHand && !n.grace);
+    // phrase ending: long note or rest in the melody at the end of the measure (before an upbeat)
+    const upbeat = up[i + 1] ?? 0;
     const measureEnd = m.start + m.length;
+    const cut = measureEnd - upbeat;
+    const mel = byMeasure[i].filter((n) => n.hand === melodyHand && !n.grace && n.onset < cut - EPS);
     if (mel.length) {
       const last = mel.reduce((a, b) => (b.onset > a.onset ? b : a));
       const lastEnd = Math.max(...mel.map((n) => n.onset + n.duration));
-      if (last.duration >= Math.min(2, m.length * 0.5) - EPS) s += 1.5;
-      else if (measureEnd - lastEnd >= 0.5 - EPS) s += 1.2;
-      // note tied over the barline: bad place to cut
-      if (mel.some((n) => n.onset + n.duration > measureEnd + EPS)) s -= 1;
+      if (last.duration >= Math.min(2, m.length * 0.5) - EPS || (upbeat && cut - last.onset >= Math.min(2, m.length * 0.5) - EPS)) s += 1.5;
+      else if (cut - lastEnd >= 0.5 - EPS) s += 1.2;
+      // note held over the cut: bad place to cut
+      if (mel.some((n) => n.onset + n.duration > cut + EPS)) s -= 1;
     } else {
       s += 0.8;
     }
+    // a group of short notes leading into the next measure after a break: a typical phrase start
+    if (upbeat) s += 0.6;
     const nextMel = byMeasure[i + 1].filter((n) => n.hand === melodyHand && !n.grace);
     if (nextMel.length && Math.min(...nextMel.map((n) => n.onset)) - next.start >= 0.5 - EPS) s += 0.4;
     // regular phrase lengths

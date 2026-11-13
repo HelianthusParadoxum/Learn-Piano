@@ -22,8 +22,27 @@ export function measuresText(score: Score, a: number, b: number): string {
   return a === b ? `такт ${ma}` : `такты ${ma}–${mb}`;
 }
 
+/** A stretch of the piece: [start, end) in quarters, full measures coreStart…endMeasure. */
+export interface Stretch {
+  startMeasure: number;
+  endMeasure: number;
+  start: number;
+  coreStart?: number;
+}
+
+/** The stretch begins before its first full measure (with an upbeat). */
+export function hasUpbeat(score: Score, x: Stretch): boolean {
+  const core = x.coreStart ?? x.startMeasure;
+  return x.start < (score.measures[core]?.start ?? 0) - EPS;
+}
+
+/** "такты 5–8" or "такты 5–8 с затактом" */
+export function stretchText(score: Score, x: Stretch): string {
+  return measuresText(score, x.coreStart ?? x.startMeasure, x.endMeasure) + (hasUpbeat(score, x) ? ' с затактом' : '');
+}
+
 export function blockMeasures(score: Score, b: Block): string {
-  return measuresText(score, b.startMeasure, b.endMeasure);
+  return stretchText(score, b);
 }
 
 /** "т. 5–8" */
@@ -31,6 +50,11 @@ export function shortMeasures(score: Score, a: number, b: number): string {
   const ma = score.measures[a]?.number ?? String(a + 1);
   const mb = score.measures[b]?.number ?? String(b + 1);
   return a === b ? `т. ${ma}` : `т. ${ma}–${mb}`;
+}
+
+/** "т. 5–8" or "т. 5–8 с затактом" */
+export function shortStretch(score: Score, x: Stretch): string {
+  return shortMeasures(score, x.coreStart ?? x.startMeasure, x.endMeasure) + (hasUpbeat(score, x) ? ' с затактом' : '');
 }
 
 /** "на большую секунду ниже" / "на терцию выше по ступеням гаммы" */
@@ -59,10 +83,11 @@ export function transpositionText(b: Block): string {
 
 const isShifted = (b: Block) => b.transpose !== 0 || !!b.steps;
 
-function notesIn(score: Score, measure: number, hand: Hand): NoteEvent[] {
+/** Notes of a hand in one measure, inside a fragment's span. */
+function notesIn(score: Score, measure: number, hand: Hand, b: Block): NoteEvent[] {
   return score.notes
-    .filter((n) => n.hand === hand && !n.grace && n.measureIndex === measure)
-    .sort((a, b) => a.onset - b.onset || a.midi - b.midi);
+    .filter((n) => n.hand === hand && !n.grace && n.measureIndex === measure && n.onset >= b.start - EPS && n.onset < b.end - EPS)
+    .sort((x, y) => x.onset - y.onset || x.midi - y.midi);
 }
 
 /** "ми, ре+соль, до" — notes in time order, chords joined with "+". */
@@ -100,9 +125,12 @@ export function diffLines(score: Score, blocks: Block[], families: PatternFamily
     if (!m.changed && !m.missing && !m.rhythm) continue;
     const vm = bStart + m.offset;
     const bm = baseStart + m.offset;
-    const where = `Такт ${score.measures[vm]?.number ?? vm + 1}${span > 1 ? ` (${m.offset + 1}-й такт паттерна)` : ''}`;
-    const here = notesIn(score, vm, hand);
-    const there = notesIn(score, bm, hand);
+    const where =
+      m.offset < 0
+        ? `Затакт (конец такта ${score.measures[vm]?.number ?? vm + 1})`
+        : `Такт ${score.measures[vm]?.number ?? vm + 1}${span > 1 ? ` (${m.offset + 1}-й такт паттерна)` : ''}`;
+    const here = notesIn(score, vm, hand, b);
+    const there = notesIn(score, bm, hand, base);
     const handChanged = here.some((n) => changed.has(n.id)) || there.some((n) => baseLost.has(n.id));
     const handRhythm = here.some((n) => rhythm.has(n.id));
     if (!handChanged && !handRhythm) continue;
@@ -186,7 +214,7 @@ export function structureSummary(blocks: Block[], families: PatternFamily[]): Ha
     let learn = 0;
     let variations = 0;
     for (const b of mine) {
-      const len = b.endMeasure - b.startMeasure + 1;
+      const len = b.endMeasure - (b.coreStart ?? b.startMeasure) + 1;
       measures += len;
       if (b.role === 'base') learn += len;
       else if (b.role === 'variation') {
@@ -206,15 +234,15 @@ export function structureSummary(blocks: Block[], families: PatternFamily[]): Ha
   return out;
 }
 
-/** Labels of one hand's fragments that overlap measures [a, b]: "A A′". */
-export function handLabels(blocks: Block[], hand: Hand, a: number, b: number): string {
+/** Labels of one hand's fragments that overlap [start, end) (quarters): "A A′". */
+export function handLabels(blocks: Block[], hand: Hand, start: number, end: number): string {
   return blocks
-    .filter((x) => x.hand === hand && x.endMeasure >= a && x.startMeasure <= b)
+    .filter((x) => x.hand === hand && x.end > start + EPS && x.start < end - EPS)
     .map((x) => x.label)
     .join(' ');
 }
 
-/** "правая A A′ + левая a a′" */
+/** "правая A A′ + левая a a′" for [start, end) in quarters */
 export function togetherLabels(blocks: Block[], a: number, b: number): string {
   const parts: string[] = [];
   for (const hand of ['R', 'L'] as Hand[]) {
@@ -228,7 +256,7 @@ export function stepTitle(score: Score, blocks: Block[], families: PatternFamily
   if (step.kind === 'pattern' || step.kind === 'variation') {
     const b = blocks[step.block];
     const last = b.sequenceEnd !== undefined ? blocks[b.sequenceEnd] : b;
-    const where = measuresText(score, b.startMeasure, last.endMeasure);
+    const where = stretchText(score, { ...b, endMeasure: last.endMeasure });
     if (step.kind === 'pattern') {
       const times = families[b.family].blocks.length;
       return {
@@ -238,8 +266,8 @@ export function stepTitle(score: Score, blocks: Block[], families: PatternFamily
     }
     return { title: `Вариация ${b.label}`, subtitle: `${HAND_NAME[b.hand]} · ${where} · отличия от ${families[b.family].letter} выделены` };
   }
-  const where = measuresText(score, step.startMeasure, step.endMeasure);
-  const labels = togetherLabels(blocks, step.startMeasure, step.endMeasure);
+  const where = stretchText(score, step);
+  const labels = togetherLabels(blocks, step.start, step.end);
   if (step.kind === 'together') return { title: `Двумя руками: ${where}`, subtitle: labels };
   return {
     title: step.whole ? 'Вся пьеса целиком' : `Соединяем: ${where}`,

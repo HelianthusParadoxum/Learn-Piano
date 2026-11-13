@@ -19,9 +19,14 @@
  *     the base are recorded.
  *  5. Hands together: the piece is cut into chunks whose boundaries coincide with the fragments of both
  *     hands where possible; identical chunks are learned once. Long pieces are learned part by part.
+ *
+ * Fragments are counted in full measures, but a fragment starts with its upbeat (the end of the measure
+ * before it that leads into its first measure, see upbeat.ts), and the fragment before it ends there.
+ * Fragments are compared aligned at their first barline; upbeat notes come before it.
  */
-import { DEFAULT_THRESHOLD, type Block, type BlockDiff, type GuideStep, type Hand, type NoteEvent, type PatternFamily, type Score } from './model';
+import { DEFAULT_THRESHOLD, EPS, type Block, type BlockDiff, type GuideStep, type Hand, type NoteEvent, type PatternFamily, type Score } from './model';
 import { fixedRanges, measureBoundaries, type BlockSizeMode, type BoundaryInfo } from './segment';
+import { barlineAt, fragmentStart, measureAt, upbeats } from './upbeat';
 
 /** Onset grid: 1/24 of a quarter note (covers triplets and 32nd notes). */
 const Q = 24;
@@ -60,18 +65,32 @@ export interface WindowMatch {
   pairs: [number, number, number][];
 }
 
-/** Notes of measures [i, i+L) as fragment events (cached); only one hand's notes if `hand` is given. */
+/**
+ * Notes of the fragment whose full measures are [i, i+L) as events (cached): with the upbeat into
+ * measure i, without the upbeat into measure i+L (it starts the next fragment); one hand's notes if
+ * `hand` is given. Positions are counted from the barline of measure i: upbeat notes have negative `q`
+ * and `off` = -1.
+ */
 export class FragmentCache {
   private byMeasure: NoteEvent[][];
   private cache = new Map<string, WEvent[]>();
   private sizes = new Map<string, number>();
+  /** upbeat into each measure, in quarters (both hands: the earlier start) */
+  readonly up: number[];
 
   constructor(
     private score: Score,
     readonly hand: Hand | null = null,
+    up?: number[],
   ) {
     this.byMeasure = score.measures.map(() => []);
     for (const n of score.notes) if (n.hand && !n.grace && (!hand || n.hand === hand)) this.byMeasure[n.measureIndex]?.push(n);
+    this.up = up ?? upbeats(score, hand);
+  }
+
+  /** Where the fragment whose first full measure is k starts (its upbeat included), in quarters. */
+  startOf(k: number): number {
+    return fragmentStart(this.score, this.up, k);
   }
 
   events(i: number, L: number): WEvent[] {
@@ -79,13 +98,17 @@ export class FragmentCache {
     let ev = this.cache.get(key);
     if (ev) return ev;
     ev = [];
-    const start = this.score.measures[i].start;
-    for (let k = i; k < i + L && k < this.byMeasure.length; k++) {
+    const M = this.byMeasure.length;
+    const from = this.startOf(i);
+    const to = this.startOf(Math.min(i + L, M));
+    const bar = barlineAt(this.score, i);
+    for (let k = Math.max(0, i - 1); k < i + L && k < M; k++) {
       for (const n of this.byMeasure[k]) {
+        if (n.onset < from - EPS || n.onset >= to - EPS) continue;
         ev.push({
           id: n.id,
           hand: n.hand!,
-          q: Math.round((n.onset - start) * Q),
+          q: Math.round((n.onset - bar) * Q),
           midi: n.midi,
           dia: n.octave * 7 + Math.max(0, STEPS.indexOf(n.step)),
           dur: n.duration,
@@ -97,7 +120,7 @@ export class FragmentCache {
     return ev;
   }
 
-  /** Learning size of measures [i, i+L): distinct onsets of each hand (a chord counts once). */
+  /** Learning size of the fragment: distinct onsets of each hand (a chord counts once). */
   size(i: number, L: number): number {
     const key = `${i}|${L}`;
     let n = this.sizes.get(key);
@@ -228,7 +251,7 @@ interface Segmenter {
 }
 
 /** Splits measures [from, to] at phrase boundaries (dynamic programming). Null if impossible. */
-function phraseFill(seg: Segmenter, bounds: BoundaryInfo[], from: number, to: number, pickup: boolean): [number, number][] | null {
+function phraseFill(seg: Segmenter, bounds: BoundaryInfo[], from: number, to: number): [number, number][] | null {
   const n = to - from + 1;
   const best = new Array<number>(n + 1).fill(Infinity);
   const prev = new Array<number>(n + 1).fill(-1);
@@ -238,9 +261,8 @@ function phraseFill(seg: Segmenter, bounds: BoundaryInfo[], from: number, to: nu
       const i = j - L;
       if (!Number.isFinite(best[i]) || !seg.valid(from + i, L)) continue;
       const size = seg.size(from + i, L);
-      const effL = from + i === 0 && pickup && L > 1 ? L - 1 : L;
       const sizeCost = size === 0 ? 1 : 2.5 * ((size - seg.target) / seg.target) ** 2;
-      const lenCost = LEN_COST[Math.min(effL, 8)] ?? 1;
+      const lenCost = LEN_COST[Math.min(L, 8)] ?? 1;
       const endCost = 0.6 * Math.max(0, 3 - bounds[from + j - 1].strength);
       const cost = best[i] + sizeCost + lenCost + endCost + 0.4;
       if (cost < best[j]) {
@@ -269,16 +291,16 @@ interface HandRange {
 }
 
 /** Measures where the hand is silent for a while (at the start or end of the piece, or for 2+ measures). */
-function silentMeasures(cache: FragmentCache, M: number): Uint8Array {
+function silentMeasures(cache: FragmentCache, M: number, first: number): Uint8Array {
   const silent = new Uint8Array(M);
-  for (let k = 0; k < M; ) {
+  for (let k = first; k < M; ) {
     if (cache.size(k, 1) > 0) {
       k++;
       continue;
     }
     let e = k;
     while (e + 1 < M && cache.size(e + 1, 1) === 0) e++;
-    if (k === 0 || e === M - 1 || e - k + 1 >= 2) for (let x = k; x <= e; x++) silent[x] = 1;
+    if (k === first || e === M - 1 || e - k + 1 >= 2) for (let x = k; x <= e; x++) silent[x] = 1;
     k = e + 1;
   }
   return silent;
@@ -288,28 +310,25 @@ function silentMeasures(cache: FragmentCache, M: number): Uint8Array {
 function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], threshold: number): HandRange[] {
   const M = bounds.length;
   const maxL = Math.min(8, M);
-  const pickup = !!score.measures[0]?.implicit && M > 1;
-  const silent = silentMeasures(cache, M);
+  // a pickup measure is the upbeat of the first fragment, not a measure of its own
+  const first = firstFullMeasure(score);
+  const silent = silentMeasures(cache, M, first);
   const hardPrefix = prefixCount(M, (k) => bounds[k].hard);
   const silentPrefix = prefixCount(M, (k) => silent[k] === 1);
   const seg: Segmenter = {
     target: HAND_TARGET,
     valid: (i, L) =>
-      i >= 0 &&
-      i + L <= M &&
-      hardPrefix[i + L - 1] - hardPrefix[i] === 0 &&
-      !bounds[i + L - 1].forbidden &&
-      silentPrefix[i + L] - silentPrefix[i] === 0,
+      i >= first && i + L <= M && hardPrefix[i + L - 1] - hardPrefix[i] === 0 && silentPrefix[i + L] - silentPrefix[i] === 0,
     size: (i, L) => cache.size(i, L),
   };
-  const startStrength = (i: number) => (i === 0 ? 3 : bounds[i - 1].strength);
+  const startStrength = (i: number) => (i === first ? 3 : bounds[i - 1].strength);
   const minSize = Math.max(MIN_NOTES, Math.round(HAND_TARGET * 0.4));
   const maxSize = Math.round(HAND_TARGET * 2.2);
 
   // 1. repeating pairs of learnable size
   const pairs: { i: number; j: number; L: number; value: number }[] = [];
   for (let L = 1; L <= maxL; L++) {
-    for (let i = 0; i + L <= M; i++) {
+    for (let i = first; i + L <= M; i++) {
       if (!seg.valid(i, L)) continue;
       const si = seg.size(i, L);
       // a sparse hand (whole notes, chords) still has phrase-long fragments
@@ -328,8 +347,7 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
         const phrase = startStrength(i) + startStrength(j) + bounds[i + L - 1].strength + bounds[j + L - 1].strength;
         const exact = m.sim > 0.999 && m.t === 0 && m.steps === 0 ? 0.5 : 0;
         // irregular lengths (3, 5, 7 measures) are rarely phrases
-        const effL = i === 0 && pickup && L > 1 ? L - 1 : L;
-        const irregular = 1.5 * (LEN_COST[Math.min(effL, 8)] ?? 1);
+        const irregular = 1.5 * (LEN_COST[Math.min(L, 8)] ?? 1);
         pairs.push({ i, j, L, value: L * m.sim * fit + 0.5 * Math.min(phrase, 14) + exact - irregular });
       }
     }
@@ -358,7 +376,7 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
 
   // 3. silences stay out; the gaps between anchors are split at phrase boundaries
   const out: HandRange[] = [];
-  let k = 0;
+  let k = first;
   while (k < M) {
     if (silent[k]) {
       let e = k;
@@ -375,22 +393,17 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
     }
     let end = k;
     while (end + 1 < M && owner[end + 1] < 0 && !silent[end + 1]) end++;
-    const filled = phraseFill(seg, bounds, k, end, pickup);
+    const filled = phraseFill(seg, bounds, k, end);
     if (filled) out.push(...filled.map(([a, b]) => ({ a, b })));
-    else if (k === 0 && end === 0 && out.length === 0 && M > 1) {
-      // a lone pickup measure: attach it to the following fragment
-      const nextL = anchorLen.get(1);
-      if (nextL) {
-        anchorLen.delete(1);
-        out.push({ a: 0, b: nextL });
-        k = nextL + 1;
-        continue;
-      }
-      out.push({ a: 0, b: 0 });
-    } else out.push(...fixedRanges(bounds.slice(k, end + 1), 4).map(([a, b]) => ({ a: a + k, b: b + k })));
+    else out.push(...fixedRanges(bounds.slice(k, end + 1), 4).map(([a, b]) => ({ a: a + k, b: b + k })));
     k = end + 1;
   }
   return out;
+}
+
+/** The first full measure (a pickup measure is the upbeat of the first fragment). */
+export function firstFullMeasure(score: Score): number {
+  return score.measures[0]?.implicit && score.measures.length > 1 ? 1 : 0;
 }
 
 export function letterFor(i: number): string {
@@ -420,23 +433,26 @@ function diffOf(base: WEvent[], other: WEvent[], m: WindowMatch, measures: numbe
   const changed: number[] = [];
   const rhythm: number[] = [];
   const baseUnmatched: number[] = [];
-  const perMeasure = Array.from({ length: measures }, (_, offset) => ({ offset, changed: 0, missing: 0, rhythm: 0 }));
+  // offset -1: the upbeat before the first barline
+  const minOff = Math.min(0, ...base.map((e) => e.off), ...other.map((e) => e.off));
+  const perMeasure = Array.from({ length: measures - minOff }, (_, k) => ({ offset: k + minOff, changed: 0, missing: 0, rhythm: 0 }));
+  const at = (off: number) => perMeasure[off - minOff];
   other.forEach((e, k) => {
     if (!matchedOther.has(k)) {
       changed.push(e.id);
-      if (perMeasure[e.off]) perMeasure[e.off].changed++;
+      if (at(e.off)) at(e.off).changed++;
     }
   });
   for (const [, k, quality] of m.pairs) {
     if (quality < 1) {
       rhythm.push(other[k].id);
-      if (perMeasure[other[k].off]) perMeasure[other[k].off].rhythm++;
+      if (at(other[k].off)) at(other[k].off).rhythm++;
     }
   }
   base.forEach((e, k) => {
     if (!matchedBase.has(k)) {
       baseUnmatched.push(e.id);
-      if (perMeasure[e.off]) perMeasure[e.off].missing++;
+      if (at(e.off)) at(e.off).missing++;
     }
   });
   return { changed, rhythm, baseUnmatched, measures: perMeasure };
@@ -448,6 +464,7 @@ export interface PatternStructure {
   families: PatternFamily[];
 }
 
+/** Number of full measures of a fragment (its upbeat not counted). */
 const coreLen = (b: Block) => b.endMeasure - (b.coreStart ?? b.startMeasure) + 1;
 
 /** Fragments and pattern families of one hand (appended to `blocks` and `families`). */
@@ -460,27 +477,27 @@ function analyzeHand(
   blocks: Block[],
   families: PatternFamily[],
 ) {
-  const M = score.measures.length;
   const cache = new FragmentCache(score, hand);
-  if (cache.size(0, M) === 0) return;
+  if (!score.notes.some((n) => n.hand === hand && !n.grace)) return;
+  const first = firstFullMeasure(score);
   const ranges: HandRange[] =
     mode === 'auto'
       ? handRanges(score, cache, bounds, threshold)
-      : fixedRanges(bounds, mode).map(([a, b]) => ({ a, b, rest: cache.size(a, b - a + 1) === 0 }));
+      : fixedRanges(bounds.slice(first), mode).map(([a, b]) => ({ a: a + first, b: b + first, rest: cache.size(a + first, b - a + 1) === 0 }));
 
-  // a pickup measure belongs to the first fragment but is not part of its pattern
-  const pickup = !!score.measures[0]?.implicit && M > 1;
   const mine: Block[] = [];
   for (const r of ranges) {
-    if (r.rest) continue;
+    if (r.rest || cache.size(r.a, r.b - r.a + 1) === 0) continue;
+    // the fragment starts with the upbeat into its first measure and ends where the next upbeat starts
+    const start = cache.startOf(r.a);
     const b: Block = {
       index: blocks.length,
       hand,
-      startMeasure: r.a,
+      startMeasure: measureAt(score, start),
       endMeasure: r.b,
-      start: score.measures[r.a].start,
-      end: score.measures[r.b].start + score.measures[r.b].length,
-      coreStart: pickup && r.a === 0 && r.b > 0 ? 1 : r.a,
+      start,
+      end: cache.startOf(r.b + 1),
+      coreStart: r.a,
       family: -1,
       label: '',
       role: 'base',
@@ -575,7 +592,7 @@ function analyzeHand(
       mine[end + 1].role === 'repeat' &&
       mine[end + 1].family === first.family &&
       (mine[end + 1].transpose !== 0 || !!mine[end + 1].steps) &&
-      mine[end + 1].startMeasure === mine[end].endMeasure + 1
+      Math.abs(mine[end + 1].start - mine[end].end) < EPS
     ) {
       end++;
       mine[end].sequenceOf = first.index;
@@ -606,7 +623,7 @@ export function equalNotePairs(score: Score, blocks: Block[], families: PatternF
     if (!cache) caches.set(f.hand, (cache = new FragmentCache(score, f.hand)));
     const base = blocks[f.base];
     const baseStart = base.coreStart ?? base.startMeasure;
-    const L = base.endMeasure - baseStart + 1;
+    const L = coreLen(base);
     const baseEv = cache.events(baseStart, L);
     for (const k of f.blocks) {
       const b = blocks[k];
@@ -621,44 +638,54 @@ export function equalNotePairs(score: Score, blocks: Block[], families: PatternF
 
 /** A stretch played with both hands; identical stretches are learned once (`repeatOf`). */
 export interface Chunk {
+  /** first measure drawn (the measure of the upbeat, if any) */
   startMeasure: number;
+  /** first full measure */
+  coreStart: number;
   endMeasure: number;
+  /** span in quarters: from the upbeat of either hand to where the next chunk's upbeat starts */
+  start: number;
+  end: number;
   /** index of an earlier chunk with exactly the same notes in both hands */
   repeatOf?: number;
 }
 
 /**
  * Chunks for playing with both hands: boundaries where both hands' fragments end are preferred,
- * cutting through a fragment is avoided. Empty if the piece is for one hand.
+ * cutting through a fragment is avoided. A chunk starts with the upbeat of either hand. Empty if the
+ * piece is for one hand.
  */
 export function togetherChunks(score: Score, blocks: Block[], bounds: BoundaryInfo[] = measureBoundaries(score)): Chunk[] {
   const M = bounds.length;
   if (!M || HANDS.some((h) => !blocks.some((b) => b.hand === h))) return [];
+  // strength of the barline after measure k: + where a hand's fragment ends, − where one goes on
   const adjusted = bounds.map((bd, k) => {
     let strength = bd.strength;
     for (const h of HANDS) {
-      const inside = blocks.some((b) => b.hand === h && b.startMeasure <= k && b.endMeasure > k);
+      const inside = blocks.some((b) => b.hand === h && (b.coreStart ?? b.startMeasure) <= k && b.endMeasure > k);
       strength += inside ? -1.5 : 1.5;
     }
     return { ...bd, strength };
   });
   const cache = new FragmentCache(score);
+  const first = firstFullMeasure(score);
   const hardPrefix = prefixCount(M, (k) => bounds[k].hard);
   const seg: Segmenter = {
     target: TOGETHER_TARGET,
-    valid: (i, L) => i >= 0 && i + L <= M && hardPrefix[i + L - 1] - hardPrefix[i] === 0 && !bounds[i + L - 1].forbidden,
+    valid: (i, L) => i >= first && i + L <= M && hardPrefix[i + L - 1] - hardPrefix[i] === 0,
     size: (i, L) => cache.size(i, L),
   };
-  const pickup = !!score.measures[0]?.implicit && M > 1;
-  const ranges = phraseFill(seg, adjusted, 0, M - 1, pickup) ?? fixedRanges(bounds, 4);
+  const ranges =
+    phraseFill(seg, adjusted, first, M - 1) ?? fixedRanges(bounds.slice(first), 4).map(([a, b]) => [a + first, b + first] as [number, number]);
   const out: Chunk[] = [];
   for (const [a, b] of ranges) {
-    const c: Chunk = { startMeasure: a, endMeasure: b };
+    const start = cache.startOf(a);
+    const c: Chunk = { startMeasure: measureAt(score, start), coreStart: a, endMeasure: b, start, end: cache.startOf(b + 1) };
     const L = b - a + 1;
     const ev = cache.events(a, L);
     if (ev.length) {
       const same = out.findIndex(
-        (o) => o.repeatOf === undefined && o.endMeasure - o.startMeasure + 1 === L && matchWindows(cache.events(o.startMeasure, L), ev, 0).sim > 0.999,
+        (o) => o.repeatOf === undefined && o.endMeasure - o.coreStart + 1 === L && matchWindows(cache.events(o.coreStart, L), ev, 0).sim > 0.999,
       );
       if (same >= 0) c.repeatOf = same;
     }
@@ -728,47 +755,58 @@ export function buildSteps(score: Score, blocks: Block[], families: PatternFamil
   if (!M || !blocks.length) return { steps, parts, chunks };
   const partOf = (m: number) => Math.max(0, parts.findIndex(([a, b]) => m >= a && m <= b));
   const twoHands = chunks.length > 0;
+  type Unit = { startMeasure: number; coreStart: number; endMeasure: number; start: number; end: number };
   // what is joined in the assembly steps: chunks, or the fragments of the only hand
-  const units: [number, number][] = twoHands
-    ? chunks.map((c) => [c.startMeasure, c.endMeasure])
-    : blocks.map((b) => [b.startMeasure, b.endMeasure]);
+  const units: Unit[] = twoHands
+    ? chunks
+    : blocks.map((b) => ({ startMeasure: b.startMeasure, coreStart: b.coreStart ?? b.startMeasure, endMeasure: b.endMeasure, start: b.start, end: b.end }));
   const assembled = new Set<string>();
-  const assemble = (a: number, b: number, whole: boolean, part: number) => {
-    const key = `${a}-${b}`;
+  const assemble = (a: Unit, b: Unit, whole: boolean, part: number) => {
+    const key = `${a.start}-${b.end}`;
     if (assembled.has(key)) return;
     assembled.add(key);
-    steps.push({ kind: 'assemble', startMeasure: a, endMeasure: b, whole, part });
+    steps.push({
+      kind: 'assemble',
+      startMeasure: a.startMeasure,
+      coreStart: a.coreStart,
+      endMeasure: b.endMeasure,
+      start: a.start,
+      end: b.end,
+      whole,
+      part,
+    });
   };
 
   parts.forEach(([pa, pb], p) => {
     for (const hand of HANDS) {
       for (const f of families) {
         if (f.hand !== hand) continue;
-        if (partOf(blocks[f.base].startMeasure) === p) steps.push({ kind: 'pattern', block: f.base, part: p });
+        if (partOf(blocks[f.base].coreStart ?? blocks[f.base].startMeasure) === p) steps.push({ kind: 'pattern', block: f.base, part: p });
         for (const k of f.blocks) {
-          if (blocks[k].role === 'variation' && partOf(blocks[k].startMeasure) === p) steps.push({ kind: 'variation', block: k, part: p });
+          const b = blocks[k];
+          if (b.role === 'variation' && partOf(b.coreStart ?? b.startMeasure) === p) steps.push({ kind: 'variation', block: k, part: p });
         }
       }
     }
     if (twoHands) {
       for (const c of chunks) {
-        if (c.repeatOf === undefined && partOf(c.startMeasure) === p) {
-          steps.push({ kind: 'together', startMeasure: c.startMeasure, endMeasure: c.endMeasure, part: p });
+        if (c.repeatOf === undefined && partOf(c.coreStart) === p) {
+          steps.push({ kind: 'together', startMeasure: c.startMeasure, coreStart: c.coreStart, endMeasure: c.endMeasure, start: c.start, end: c.end, part: p });
         }
       }
     }
     // join the chunks of the part: groups of about 8 measures, then the whole part
-    const inPart = units.filter(([a]) => partOf(a) === p);
+    const inPart = units.filter((u) => partOf(u.coreStart) === p);
     if (inPart.length < 2) return;
-    const groups: [number, number, number][] = []; // [first measure, last measure, units]
-    let cur: [number, number, number] | null = null;
-    for (const [a, b] of inPart) {
-      if (!cur) cur = [a, b, 1];
+    const groups: { from: Unit; to: Unit; count: number }[] = [];
+    let cur: { from: Unit; to: Unit; count: number } | null = null;
+    for (const u of inPart) {
+      if (!cur) cur = { from: u, to: u, count: 1 };
       else {
-        cur[1] = b;
-        cur[2]++;
+        cur.to = u;
+        cur.count++;
       }
-      if (cur[1] - cur[0] + 1 >= 8 || bounds[b]?.hard) {
+      if (cur.to.endMeasure - cur.from.coreStart + 1 >= 8 || bounds[u.endMeasure]?.hard) {
         groups.push(cur);
         cur = null;
       }
@@ -776,18 +814,29 @@ export function buildSteps(score: Score, blocks: Block[], families: PatternFamil
     if (cur) {
       // a short tail joins the previous group
       const last = groups[groups.length - 1];
-      if (last && cur[1] - cur[0] + 1 < 4) {
-        last[1] = cur[1];
-        last[2] += cur[2];
+      if (last && cur.to.endMeasure - cur.from.coreStart + 1 < 4) {
+        last.to = cur.to;
+        last.count += cur.count;
       } else groups.push(cur);
     }
-    const multi = groups.filter((g) => g[2] > 1);
-    const partWhole = inPart[0][0] === pa && inPart[inPart.length - 1][1] === pb;
-    const coversPart = multi.length === 1 && multi[0][0] === inPart[0][0] && multi[0][1] === inPart[inPart.length - 1][1];
-    if (!coversPart && pb - pa + 1 > SHORT_PART) for (const g of multi) assemble(g[0], g[1], false, p);
-    if (parts.length > 1 && partWhole) assemble(pa, pb, false, p);
+    const multi = groups.filter((g) => g.count > 1);
+    const firstUnit = inPart[0];
+    const lastUnit = inPart[inPart.length - 1];
+    const partWhole = firstUnit.coreStart <= Math.max(pa, firstFullMeasure(score)) && lastUnit.endMeasure === pb;
+    const coversPart = multi.length === 1 && multi[0].from === firstUnit && multi[0].to === lastUnit;
+    if (!coversPart && pb - pa + 1 > SHORT_PART) for (const g of multi) assemble(g.from, g.to, false, p);
+    if (parts.length > 1 && partWhole) assemble(firstUnit, lastUnit, false, p);
   });
-  if (units.length > 1) assemble(0, M - 1, true, Math.max(0, parts.length - 1));
+  if (units.length > 1) {
+    const whole: Unit = {
+      startMeasure: 0,
+      coreStart: firstFullMeasure(score),
+      endMeasure: M - 1,
+      start: 0,
+      end: barlineAt(score, M),
+    };
+    assemble(whole, whole, true, Math.max(0, parts.length - 1));
+  }
   return { steps, parts, chunks };
 }
 

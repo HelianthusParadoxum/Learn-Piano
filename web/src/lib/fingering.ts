@@ -543,3 +543,30 @@ export function computeFingering(notes: NoteEvent[], opts: FingeringOptions = {}
   fingerHand(notes, 'R', opts);
   fingerHand(notes, 'L', opts);
 }
+
+/**
+ * Marks notes whose finger lands on another key than the last time this finger was used in the same
+ * hand (`fingerMove`): the hand has moved, or the finger is placed elsewhere — worth a glance before
+ * playing. Notes are taken in playing order; a chord counts as played at once.
+ */
+export function markFingerMoves(notes: NoteEvent[]): void {
+  for (const hand of ['R', 'L'] as Hand[]) {
+    const last = new Map<number, number>();
+    const list = notes
+      .filter((n) => n.hand === hand && !n.grace)
+      .sort((a, b) => a.onset - b.onset || a.midi - b.midi);
+    for (const n of list) {
+      n.fingerMove = undefined;
+      if (!n.finger) continue;
+      const prev = last.get(n.finger);
+      if (prev !== undefined && prev !== n.midi) n.fingerMove = n.midi > prev ? 1 : -1;
+      last.set(n.finger, n.midi);
+    }
+  }
+}
+
+/** "→3" / "←3" / "3": a finger number with its move mark. */
+export function fingerLabel(n: Pick<NoteEvent, 'finger' | 'fingerMove'>): string {
+  if (!n.finger) return '';
+  return `${n.fingerMove === 1 ? '→' : n.fingerMove === -1 ? '←' : ''}${n.finger}`;
+}
