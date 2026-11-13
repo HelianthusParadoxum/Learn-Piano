@@ -1,9 +1,9 @@
 /** End-to-end processing of a MusicXML document into a learning guide. */
 import { analyzeSpan, type BlockAnalysis, type Span } from './analysis';
-import { computeFingering, markFingerMoves } from './fingering';
+import { computeFingering, isBlackKey, markFingerMoves } from './fingering';
 import { DEFAULT_THRESHOLD, EPS, type Block, type GuideStep, type Hand, type PatternFamily, type PieceSettings, type Score } from './model';
 import { parseScore, serializeXml, withFingerings } from './musicxml';
-import { analyzePatterns, buildSteps, equalNotePairs, type Chunk } from './patterns';
+import { analyzePatterns, buildSteps, equalNotePairs, repeatNotePairs, type Chunk, type NotePair } from './patterns';
 
 export interface Guide {
   score: Score;
@@ -64,19 +64,47 @@ export function stepKey(score: Score, blocks: Block[], step: GuideStep): string 
   return `${prefix}:${s.coreStart ?? s.startMeasure}-${s.endMeasure}`;
 }
 
+/** Pattern structure and learning order do not depend on fingers: kept per score and settings. */
+const structures = new WeakMap<Score, Map<string, { blocks: Block[]; families: PatternFamily[]; plan: ReturnType<typeof buildSteps> }>>();
+function structureOf(score: Score, settings: PieceSettings) {
+  const key = `${settings.blockSize}|${settings.threshold ?? DEFAULT_THRESHOLD}`;
+  let byKey = structures.get(score);
+  if (!byKey) structures.set(score, (byKey = new Map()));
+  let st = byKey.get(key);
+  if (!st) {
+    const { blocks, families } = analyzePatterns(score, settings.blockSize, settings.threshold ?? DEFAULT_THRESHOLD);
+    st = { blocks, families, plan: buildSteps(score, blocks, families) };
+    byKey.set(key, st);
+  }
+  return st;
+}
+
 export function buildGuide(score: Score, settings: PieceSettings, overrides: Record<string, number> = {}): Guide {
-  const { blocks, families } = analyzePatterns(score, settings.blockSize, settings.threshold ?? DEFAULT_THRESHOLD);
+  const { blocks, families, plan } = structureOf(score, settings);
   const fingerOpts = { handSize: settings.handSize, tempo: score.tempoMap[0]?.bpm };
   computeFingering(score.notes, { ...fingerOpts, overrides });
-  // the same notes in every appearance of a pattern get the same fingers as in its first appearance
+  // every appearance of a pattern gets the fingers of its first appearance (yours or automatic) on the
+  // notes they share — also when it sounds from another note; a repeat of a variation follows that
+  // variation. A finger you choose for a note of an appearance itself still wins.
   const patternFingers: Record<string, number> = {};
-  for (const [baseId, id] of equalNotePairs(score, blocks, families)) {
-    const f = score.notes[baseId].finger;
-    if (f && score.notes[id].finger !== f) patternFingers[score.notes[id].key] = f;
-  }
-  if (Object.keys(patternFingers).length) computeFingering(score.notes, { ...fingerOpts, overrides, patternFingers });
+  const copy = (pairs: NotePair[]) => {
+    let changed = false;
+    for (const { from, to, shifted } of pairs) {
+      const f = score.notes[from].finger;
+      const target = score.notes[to];
+      if (!f || overrides[target.key] !== undefined) continue;
+      // in a transposed copy the thumb must not be pushed onto a black key
+      if (shifted && f === 1 && isBlackKey(target.midi)) continue;
+      // pinned even where it already agrees: the next pass must not move it
+      patternFingers[target.key] = f;
+      if (target.finger !== f) changed = true;
+    }
+    return changed;
+  };
+  if (copy(equalNotePairs(score, blocks, families))) computeFingering(score.notes, { ...fingerOpts, overrides, patternFingers });
+  if (copy(repeatNotePairs(score, blocks))) computeFingering(score.notes, { ...fingerOpts, overrides, patternFingers });
   markFingerMoves(score.notes);
-  const { steps, parts, chunks } = buildSteps(score, blocks, families);
+  const { steps, parts, chunks } = plan;
   const analyses = steps.map((st, i) => analyzeSpan(score, stepSpan(score, blocks, st), st.kind, i === 0, stepHand(blocks, st) ?? undefined));
   const renderXml = serializeXml(withFingerings(score.doc, score.notes, true));
   const exportXml = serializeXml(withFingerings(score.doc, score.notes));

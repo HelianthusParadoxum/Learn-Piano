@@ -649,27 +649,58 @@ export function analyzePatterns(score: Score, mode: BlockSizeMode = 'auto', thre
   return { blocks, families };
 }
 
+/** A note of a pattern and the same note in another appearance of it (possibly from another note). */
+export interface NotePair {
+  from: number;
+  to: number;
+  /** the appearance is transposed (a sequence, another octave) */
+  shifted: boolean;
+}
+
+/** The notes that correspond in two fragments of a hand, given the shift of `b` relative to `a`. */
+function correspondingNotes(cache: FragmentCache, a: Block, b: Block, shifted: boolean, exactOnly: boolean): NotePair[] {
+  const L = coreLen(a);
+  if (coreLen(b) !== L) return [];
+  const evA = cache.events(a.coreStart ?? a.startMeasure, L);
+  const evB = cache.events(b.coreStart ?? b.startMeasure, L);
+  const m = b.steps ? matchWindows(evA, evB, b.steps, true) : matchWindows(evA, evB, b.transpose);
+  return m.pairs.filter(([, , q]) => !exactOnly || q === 1).map(([x, y]) => ({ from: evA[x].id, to: evB[y].id, shifted }));
+}
+
 /**
- * Pairs of equal notes (same position, pitch and length) between each block and the base of its
- * family — used to give every appearance of a pattern the same fingering.
+ * Notes of every appearance of a pattern that correspond to notes of its first appearance (same place,
+ * pitch moved by the appearance's shift, same length) — used to give every appearance of a pattern the
+ * same fingering. Repeats of a variation correspond to that variation (see repeatNotePairs).
  */
-export function equalNotePairs(score: Score, blocks: Block[], families: PatternFamily[]): [number, number][] {
+export function equalNotePairs(score: Score, blocks: Block[], families: PatternFamily[]): NotePair[] {
   const caches = new Map<Hand, FragmentCache>();
-  const out: [number, number][] = [];
+  const out: NotePair[] = [];
   for (const f of families) {
     let cache = caches.get(f.hand);
     if (!cache) caches.set(f.hand, (cache = new FragmentCache(score, f.hand)));
     const base = blocks[f.base];
-    const baseStart = base.coreStart ?? base.startMeasure;
-    const L = coreLen(base);
-    const baseEv = cache.events(baseStart, L);
     for (const k of f.blocks) {
       const b = blocks[k];
-      if (k === f.base || b.transpose !== 0 || b.steps) continue;
-      const evB = cache.events(b.coreStart ?? b.startMeasure, L);
-      const m = matchWindows(baseEv, evB, 0);
-      for (const [a, c, quality] of m.pairs) if (quality === 1) out.push([baseEv[a].id, evB[c].id]);
+      if (k === f.base) continue;
+      // a repeat of a variation carries its shift relative to that variation
+      if (b.role === 'repeat' && b.repeatOf !== undefined && b.repeatOf !== f.base) continue;
+      out.push(...correspondingNotes(cache, base, b, b.transpose !== 0 || !!b.steps, true));
     }
+  }
+  return out;
+}
+
+/** Notes of each repeat of a variation and the same notes of that variation. */
+export function repeatNotePairs(score: Score, blocks: Block[]): NotePair[] {
+  const caches = new Map<Hand, FragmentCache>();
+  const out: NotePair[] = [];
+  for (const b of blocks) {
+    if (b.role !== 'repeat' || b.repeatOf === undefined) continue;
+    const src = blocks[b.repeatOf];
+    if (src.role !== 'variation') continue;
+    let cache = caches.get(b.hand);
+    if (!cache) caches.set(b.hand, (cache = new FragmentCache(score, b.hand)));
+    out.push(...correspondingNotes(cache, src, b, b.transpose !== 0 || !!b.steps, false));
   }
   return out;
 }

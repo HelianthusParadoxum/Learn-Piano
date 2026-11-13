@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_THRESHOLD, type Hand } from '../web/src/lib/model';
+import { DEFAULT_SETTINGS, DEFAULT_THRESHOLD, type Hand } from '../web/src/lib/model';
 import { parseScore } from '../web/src/lib/musicxml';
 import { diffLines, structureSummary } from '../web/src/lib/patternText';
 import { analyzePatterns, bestMatch, buildSteps, FragmentCache, matchWindows, stepOfBlock } from '../web/src/lib/patterns';
+import { buildGuide } from '../web/src/lib/piece';
 import { loadExample, loadFile } from './helpers';
 
 function describeStructure(name: string, threshold = DEFAULT_THRESHOLD) {
@@ -220,5 +221,27 @@ describe('a phrase repeated a step higher with a changed middle', () => {
     const lines = diffLines(s, blocks, families, R[1]);
     expect(lines[0]).toContain('сдвинут на секунду вверх');
     expect(lines).toContain('Такт 3 (1-й такт паттерна): в A со сдвигом — фа, фа, ми, ми, ре, си; здесь — фа, фа, соль, фа, ми, ре.');
+  });
+
+  it('carries a finger chosen in the pattern over to its transposed appearances', () => {
+    const s = parseScore(xml);
+    const g0 = buildGuide(s, DEFAULT_SETTINGS);
+    const R = g0.blocks.filter((b) => b.hand === 'R');
+    const notesOf = (b: (typeof R)[number]) =>
+      g0.score.notes.filter((n) => n.hand === 'R' && n.onset >= b.start - 1e-6 && n.onset < b.end - 1e-6).sort((x, y) => x.onset - y.onset);
+    // the first note of the first full bar of A (E5) and the same place in A′ a step higher (F5)
+    const baseNote = notesOf(R[0])[3];
+    const copyNote = notesOf(R[1])[3];
+    expect([baseNote.step, copyNote.step]).toEqual(['E', 'F']);
+    const finger = baseNote.finger === 4 ? 3 : 4;
+    const g1 = buildGuide(s, DEFAULT_SETTINGS, { [baseNote.key]: finger });
+    const after = (id: number) => g1.score.notes[id];
+    expect(after(baseNote.id).finger).toBe(finger);
+    expect(after(copyNote.id).finger).toBe(finger);
+    expect(after(copyNote.id).fingerSource).toBe('pattern');
+    // a finger chosen for the copy itself stays
+    const own = finger === 4 ? 3 : 4;
+    const g2 = buildGuide(s, DEFAULT_SETTINGS, { [baseNote.key]: finger, [copyNote.key]: own });
+    expect(g2.score.notes[copyNote.id].finger).toBe(own);
   });
 });
