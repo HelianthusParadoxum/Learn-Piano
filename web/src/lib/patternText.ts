@@ -1,6 +1,7 @@
 /** Human-readable descriptions of the pattern structure (Russian). */
 import { EPS, type Block, type GuideStep, type Hand, type NoteEvent, type PatternFamily, type Score } from './model';
-import { intervalName, stepName } from './noteNames';
+import { intervalName, midiSpelling, stepName } from './noteNames';
+import { keyAlter } from './noteEdit';
 
 export const HAND_NAME: Record<Hand, string> = { R: 'Правая рука', L: 'Левая рука' };
 export const HAND_LOWER: Record<Hand, string> = { R: 'правая рука', L: 'левая рука' };
@@ -90,8 +91,21 @@ function notesIn(score: Score, measure: number, hand: Hand, b: Block): NoteEvent
     .sort((x, y) => x.onset - y.onset || x.midi - y.midi);
 }
 
-/** "ми, ре+соль, до" — notes in time order, chords joined with "+". */
-function listNotes(notes: NoteEvent[], withOctave: boolean): string {
+type Named = { step: string; alter: number; octave: number };
+
+/** A base note moved the way a transposed variation is moved (to compare like with like). */
+function shifted(score: Score, n: NoteEvent, b: Block): Named {
+  if (b.steps) {
+    const pos = n.octave * 7 + 'CDEFGAB'.indexOf(n.step) + b.steps;
+    const step = 'CDEFGAB'[((pos % 7) + 7) % 7];
+    return { step, octave: Math.floor(pos / 7), alter: keyAlter(step, score.measures[n.measureIndex]?.fifths ?? 0) };
+  }
+  if (b.transpose % 12 === 0) return { step: n.step, alter: n.alter, octave: n.octave + b.transpose / 12 };
+  return midiSpelling(n.midi + b.transpose, (score.measures[n.measureIndex]?.fifths ?? 0) < 0);
+}
+
+/** "ми, ре+соль, до" — notes in time order, chords joined with "+" (`rename` shows them moved). */
+function listNotes(notes: NoteEvent[], withOctave: boolean, rename?: (n: NoteEvent) => Named): string {
   const groups: NoteEvent[][] = [];
   for (const n of notes) {
     const g = groups[groups.length - 1];
@@ -100,7 +114,10 @@ function listNotes(notes: NoteEvent[], withOctave: boolean): string {
   }
   // a chord with the same note in two octaves (e.g. an octave in the bass) needs octave numbers
   const octaves = withOctave || groups.some((g) => new Set(g.map((n) => n.step + n.alter)).size < g.length);
-  const name = (n: NoteEvent) => stepName(n.step, n.alter, 'solfege') + (octaves ? `${n.octave}` : '');
+  const name = (x: NoteEvent) => {
+    const n = rename ? rename(x) : x;
+    return stepName(n.step, n.alter, 'solfege') + (octaves ? `${n.octave}` : '');
+  };
   const parts = groups.map((g) => g.map(name).join('+'));
   if (parts.length > 10) return parts.slice(0, 10).join(', ') + ', …';
   return parts.join(', ');
@@ -138,21 +155,24 @@ export function diffLines(score: Score, blocks: Block[], families: PatternFamily
       lines.push(`${where}: те же ноты, но другой ритм (длительности).`);
       continue;
     }
+    // a transposed variation is compared with its base moved the same way
+    const move = isShifted(b) ? (n: NoteEvent) => shifted(score, n, b) : undefined;
+    const inBase = move ? `в ${letter} со сдвигом` : `в ${letter}`;
     if (!here.length) {
-      lines.push(`${where}: здесь пауза (в ${letter} — ${listNotes(there, false)}).`);
+      lines.push(`${where}: здесь пауза (${inBase} — ${listNotes(there, false, move)}).`);
       continue;
     }
     if (!there.length) {
       lines.push(`${where}: добавились ноты ${listNotes(here, false)} (в ${letter} рука молчала).`);
       continue;
     }
-    let a = listNotes(there, false);
+    let a = listNotes(there, false, move);
     let c = listNotes(here, false);
     if (a === c) {
-      a = listNotes(there, true);
+      a = listNotes(there, true, move);
       c = listNotes(here, true);
     }
-    lines.push(`${where}: в ${letter} — ${a}; здесь — ${c}.`);
+    lines.push(`${where}: ${inBase} — ${a}; здесь — ${c}.`);
   }
   if (lines.length > 8) return [...lines.slice(0, 8), `…и ещё ${lines.length - 8} отличий — смотрите выделенные ноты.`];
   return lines;

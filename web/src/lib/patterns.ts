@@ -204,9 +204,22 @@ function topShifts(A: WEvent[], B: WEvent[], diatonic: boolean): number[] {
 
 /**
  * Shifted (transposed) matches must be at least this similar: the best of several shifts finds chance
- * matches more easily, so a low threshold applies to matches without a shift only.
+ * matches more easily. When both fragments have the same rhythm, the relation is clear anyway and the
+ * pattern threshold applies (a phrase repeated a step higher with a changed middle is its variation).
  */
 export const MIN_SHIFTED = 0.6;
+/** Rhythm similarity from which fragments count as having the same rhythm. */
+const SAME_RHYTHM = 0.9;
+
+/** Similarity of the rhythms of two fragments: Dice over note onsets of each hand (pitches ignored). */
+export function rhythmSimilarity(A: WEvent[], B: WEvent[]): number {
+  const a = new Set(A.map((e) => keyOf(e.hand, e.q)));
+  const b = new Set(B.map((e) => keyOf(e.hand, e.q)));
+  if (!a.size && !b.size) return 1;
+  let common = 0;
+  for (const k of a) if (b.has(k) || b.has(k - 2) || b.has(k + 2)) common++;
+  return (2 * common) / (a.size + b.size);
+}
 
 /** The match is spread over the whole fragment: every measure with notes has something in common. */
 function spread(A: WEvent[], B: WEvent[], m: WindowMatch): boolean {
@@ -221,12 +234,17 @@ function spread(A: WEvent[], B: WEvent[], m: WindowMatch): boolean {
 
 /**
  * Best match over a few candidate transpositions (the most common pitch shifts between the fragments).
- * A shift is used only if it is clearly better than no shift, at least `minShifted` similar and spread
- * over the whole fragment ("the whole figure from another note", not half of it).
+ * A shift is used only if it is clearly better than no shift, spread over the whole fragment ("the
+ * whole figure from another note", not half of it) and at least MIN_SHIFTED similar. With
+ * `sameRhythmAtThreshold` (grouping fragments that are already cut), `threshold` is enough when both
+ * fragments have the same rhythm; cutting the piece keeps the stricter rule, so that chance matches of
+ * common rhythms do not decide where fragments begin.
  */
-export function bestMatch(A: WEvent[], B: WEvent[], minShifted = MIN_SHIFTED): WindowMatch {
+export function bestMatch(A: WEvent[], B: WEvent[], threshold = 0, sameRhythmAtThreshold = false): WindowMatch {
   const plain = matchWindows(A, B, 0);
   if (plain.sim > 0.999 || !A.length || !B.length) return plain;
+  const relaxed = sameRhythmAtThreshold && rhythmSimilarity(A, B) >= SAME_RHYTHM;
+  const minShifted = relaxed ? threshold : Math.max(threshold, MIN_SHIFTED);
   let best = plain;
   const better = (m: WindowMatch) => m.sim >= best.sim + 0.1 && m.sim >= minShifted && spread(A, B, m);
   for (const t of topShifts(A, B, false)) {
@@ -241,6 +259,8 @@ export function bestMatch(A: WEvent[], B: WEvent[], minShifted = MIN_SHIFTED): W
 }
 
 const MIN_NOTES = 3;
+/** Boundary strength of a clear phrase edge (a long note or rest, an upbeat, a 2/4-bar position). */
+const PHRASE_EDGE = 2;
 const LEN_COST = [0, 0.4, 0, 0.35, 0, 0.7, 0.3, 0.8, 0.1];
 
 interface Segmenter {
@@ -326,7 +346,8 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
   const maxSize = Math.round(HAND_TARGET * 2.2);
 
   // 1. repeating pairs of learnable size
-  const pairs: { i: number; j: number; L: number; value: number }[] = [];
+  type Pair = { i: number; j: number; L: number; m: WindowMatch; si: number; sj: number; value: number };
+  const pairs: Pair[] = [];
   for (let L = 1; L <= maxL; L++) {
     for (let i = first; i + L <= M; i++) {
       if (!seg.valid(i, L)) continue;
@@ -341,16 +362,33 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
         const B = cache.events(j, L);
         // the Dice coefficient cannot exceed 2·min/(sum): skip hopeless pairs early
         if ((2 * Math.min(A.length, B.length)) / (A.length + B.length) < threshold) continue;
-        const m = bestMatch(A, B, Math.max(threshold, MIN_SHIFTED));
+        // a shifted copy with the same rhythm counts at the pattern threshold only between whole phrases
+        // (strong boundaries at both ends of both fragments); elsewhere common rhythms match by chance
+        const phrases =
+          Math.min(startStrength(i), startStrength(j), bounds[i + L - 1].strength, bounds[j + L - 1].strength) >= PHRASE_EDGE;
+        const m = bestMatch(A, B, threshold, phrases);
         if (m.sim < threshold) continue;
-        const fit = 1 - Math.min(1, Math.abs((si + sj) / 2 - HAND_TARGET) / HAND_TARGET);
-        const phrase = startStrength(i) + startStrength(j) + bounds[i + L - 1].strength + bounds[j + L - 1].strength;
-        const exact = m.sim > 0.999 && m.t === 0 && m.steps === 0 ? 0.5 : 0;
-        // irregular lengths (3, 5, 7 measures) are rarely phrases
-        const irregular = 1.5 * (LEN_COST[Math.min(L, 8)] ?? 1);
-        pairs.push({ i, j, L, value: L * m.sim * fit + 0.5 * Math.min(phrase, 14) + exact - irregular });
+        pairs.push({ i, j, L, m, si, sj, value: 0 });
       }
     }
+  }
+  // how many places a fragment comes back in: a motif that recurs often explains more of the piece than
+  // a long stretch repeated once
+  const support = new Map<string, number>();
+  for (const p of pairs) {
+    support.set(`${p.i}|${p.L}`, (support.get(`${p.i}|${p.L}`) ?? 0) + 1);
+    support.set(`${p.j}|${p.L}`, (support.get(`${p.j}|${p.L}`) ?? 0) + 1);
+  }
+  for (const p of pairs) {
+    const { i, j, L, m, si, sj } = p;
+    const fit = 1 - Math.min(1, Math.abs((si + sj) / 2 - HAND_TARGET) / HAND_TARGET);
+    const phrase = startStrength(i) + startStrength(j) + bounds[i + L - 1].strength + bounds[j + L - 1].strength;
+    const exact = m.sim > 0.999 && m.t === 0 && m.steps === 0 ? 0.5 : 0;
+    // irregular lengths (3, 5, 7 measures) are rarely phrases
+    const irregular = 1.5 * (LEN_COST[Math.min(L, 8)] ?? 1);
+    const recurs = ((support.get(`${i}|${L}`) ?? 1) + (support.get(`${j}|${L}`) ?? 1)) / 2;
+    const often = 0.4 * Math.min(4, recurs - 1);
+    p.value = L * m.sim * fit + 0.5 * Math.min(phrase, 14) + exact - irregular + often;
   }
   pairs.sort((a, b) => b.value - a.value);
 
@@ -519,7 +557,7 @@ function analyzeHand(
       for (const f of handFamilies) {
         const base = blocks[f.base];
         if (coreLen(base) !== coreLen(b) || ev(base).length < MIN_NOTES) continue;
-        const m = bestMatch(ev(base), notes, Math.max(threshold, MIN_SHIFTED));
+        const m = bestMatch(ev(base), notes, threshold, true);
         if (m.sim >= threshold && (!bestM || m.sim > bestM.sim)) {
           bestM = m;
           bestFamily = f;

@@ -160,3 +160,65 @@ describe('pattern analysis, separately for each hand', () => {
     }
   });
 });
+
+describe('a phrase repeated a step higher with a changed middle', () => {
+  // own melody: two-bar phrases with a three-eighth upbeat; the second phrase has the same rhythm, is
+  // a scale step higher and goes elsewhere in its middle (about half of the notes match)
+  const n = (p: string, dur: number, type: string, staff = 1) =>
+    p === 'r'
+      ? `<note><rest/><duration>${dur}</duration><voice>${staff}</voice><type>${type}</type><staff>${staff}</staff></note>`
+      : `<note><pitch><step>${p[0]}</step><octave>${p[1]}</octave></pitch><duration>${dur}</duration><voice>${staff}</voice><type>${type}</type><staff>${staff}</staff></note>`;
+  const q = (p: string) => n(p, 2, 'quarter');
+  const e = (p: string) => n(p, 1, 'eighth');
+  const up1 = [e('E4'), e('G4'), e('C5')];
+  const up2 = [e('F4'), e('A4'), e('D5')];
+  const phrase1 = [[q('E5'), e('E5'), q('D5'), e('D5'), e('C5'), e('A4')], [q('B4'), q('D5'), e('r')]];
+  const phrase2 = [[q('F5'), e('F5'), q('G5'), e('F5'), e('E5'), e('D5')], [q('C5'), q('G5'), e('r')]];
+  const bars = [
+    [...up1],
+    phrase1[0],
+    [...phrase1[1], ...up2],
+    phrase2[0],
+    [...phrase2[1], ...up1],
+    phrase1[0],
+    [...phrase1[1], ...up2],
+    phrase2[0],
+    [q('C5'), q('G5'), n('r', 4, 'half')],
+  ];
+  const xml = `<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list><part id="P1">${bars
+    .map((b, i) => {
+      const len = i === 0 ? 3 : 8;
+      const attrs =
+        i === 0
+          ? '<attributes><divisions>2</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>'
+          : '';
+      const lh = i === 0 ? n('r', 3, 'quarter', 2) : n(i % 2 ? 'C3' : 'G2', 8, 'whole', 2);
+      return `<measure number="${i}"${i === 0 ? ' implicit="yes"' : ''}>${attrs}${b.join('')}<backup><duration>${len}</duration></backup>${lh}</measure>`;
+    })
+    .join('')}</part></score-partwise>`;
+
+  it('groups it with the first phrase as a transposed variation', () => {
+    const s = parseScore(xml);
+    const right = new FragmentCache(s, 'R');
+    const a = right.events(1, 2);
+    const b = right.events(3, 2);
+    // the same rhythm, but only about half of the notes match a step higher
+    const loose = bestMatch(a, b, 0.5, true);
+    expect(loose.steps).toBe(1);
+    expect(loose.sim).toBeGreaterThanOrEqual(0.5);
+    expect(loose.sim).toBeLessThan(0.6);
+    // without the same rhythm such a weak shifted match would not count
+    expect(bestMatch(a, b, 0.5, false).steps).toBe(0);
+
+    const { blocks } = analyzePatterns(s);
+    const R = blocks.filter((x) => x.hand === 'R');
+    expect(R.map((x) => x.label)).toEqual(['A', 'A′', 'A', 'A′']);
+    expect(R[1].steps).toBe(1);
+    expect(R[1].role).toBe('variation');
+    // the differences are shown against the first phrase moved a step higher
+    const { families } = analyzePatterns(s);
+    const lines = diffLines(s, blocks, families, R[1]);
+    expect(lines[0]).toContain('сдвинут на секунду вверх');
+    expect(lines).toContain('Такт 3 (1-й такт паттерна): в A со сдвигом — фа, фа, ми, ми, ре, си; здесь — фа, фа, соль, фа, ми, ре.');
+  });
+});

@@ -27,8 +27,14 @@ export function measureBoundaries(score: Score): BoundaryInfo[] {
   const up = upbeats(score, melodyHand);
 
   const info: BoundaryInfo[] = [];
-  // phrase lengths are counted from the first full measure (a pickup does not count)
-  let sectionStart = measures[0]?.implicit && M > 1 ? 1 : 0;
+  // phrase lengths are counted from the first full measure: a pickup does not count, nor a first measure
+  // written in full that holds only rests and the upbeat into the next one
+  const upbeatOnly =
+    M > 1 &&
+    (up[1] ?? 0) > 0 &&
+    byMeasure[0].length > 0 &&
+    byMeasure[0].every((n) => n.onset >= measures[1].start - up[1] - EPS || n.hand !== melodyHand);
+  let sectionStart = (measures[0]?.implicit || upbeatOnly) && M > 1 ? 1 : 0;
   for (let i = 0; i < M; i++) {
     const m = measures[i];
     const next = measures[i + 1];
