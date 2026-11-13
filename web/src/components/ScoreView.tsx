@@ -325,6 +325,17 @@ export function ScoreView(props: ScoreViewProps) {
     measureBoxes.current = boxes;
     staffBoxes.current = bands;
     entryPos.current = entries;
+    // finger move arrows ("3→"): raise the arrow to the middle of the digit — fonts draw arrows lower
+    host.querySelectorAll('.osmd-fingering text').forEach((t) => {
+      const m = /^(\d)([←→])$/.exec(t.textContent ?? '');
+      if (!m) return;
+      t.textContent = m[1];
+      const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+      arrow.setAttribute('class', 'lp-move-arrow');
+      arrow.setAttribute('dy', '-0.16em');
+      arrow.textContent = m[2];
+      t.appendChild(arrow);
+    });
     // colour fingering digits by hand: tag every staff line group with the hand that plays it
     const handByStaff = new Map(score.staves.map((st) => [st.staffIndex, st.hand]));
     host.querySelectorAll('g.osmd-staffline').forEach((g) => {

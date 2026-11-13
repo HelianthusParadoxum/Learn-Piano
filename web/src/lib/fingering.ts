@@ -565,8 +565,13 @@ export function markFingerMoves(notes: NoteEvent[]): void {
   }
 }
 
-/** "→3" / "←3" / "3": a finger number with its move mark. */
+/** Arrow of a finger move: → (to a key further right), ← (further left), '' (none). */
+export function moveArrow(move: NoteEvent['fingerMove']): string {
+  return move === 1 ? '→' : move === -1 ? '←' : '';
+}
+
+/** "3→" / "3←" / "3": the finger first, then where it goes. */
 export function fingerLabel(n: Pick<NoteEvent, 'finger' | 'fingerMove'>): string {
   if (!n.finger) return '';
-  return `${n.fingerMove === 1 ? '→' : n.fingerMove === -1 ? '←' : ''}${n.finger}`;
+  return `${n.finger}${moveArrow(n.fingerMove)}`;
 }

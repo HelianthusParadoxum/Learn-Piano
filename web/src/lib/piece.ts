@@ -18,7 +18,7 @@ export interface Guide {
   chunks: Chunk[];
   /** one analysis per step */
   analyses: BlockAnalysis[];
-  /** MusicXML with fingering numbers and move marks ("→3"), ready for rendering. */
+  /** MusicXML with fingering numbers and move marks ("3→"), ready for rendering. */
   renderXml: string;
   /** MusicXML with plain fingering numbers, for other programs. */
   exportXml: string;

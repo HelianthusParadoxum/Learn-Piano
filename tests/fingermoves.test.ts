@@ -23,7 +23,7 @@ describe('finger move marks', () => {
     ];
     markFingerMoves(notes);
     expect(notes.map((n) => n.fingerMove ?? 0)).toEqual([0, 0, 0, 1, 1, 0, 0, -1]);
-    expect(notes.map(fingerLabel)).toEqual(['1', '2', '3', '→1', '→2', '1', '3', '←1']);
+    expect(notes.map(fingerLabel)).toEqual(['1', '2', '3', '1→', '2→', '1', '3', '1←']);
   });
 
   it('tracks each hand separately', () => {
@@ -36,7 +36,20 @@ describe('finger move marks', () => {
     const g = buildGuide(loadExample('c-major-scale.musicxml'), DEFAULT_SETTINGS);
     const moved = g.score.notes.filter((n) => n.fingerMove);
     expect(moved.length).toBeGreaterThan(0);
-    expect(g.renderXml).toMatch(/<fingering[^>]*>[→←]\d<\/fingering>/);
+    expect(g.renderXml).toMatch(/<fingering[^>]*>\d[→←]<\/fingering>/);
     expect(g.exportXml).not.toMatch(/[→←]/);
+  });
+});
+
+describe('finger move marks on a semitone', () => {
+  it('marks a finger that goes from A to G♯ (white key to the black key next to it)', () => {
+    // bar 3 ends with A4 on finger 2; bar 4 is the chord E♯4 + G♯4 on fingers 1 and 2
+    const notes = [note(0, 0, 66, 1), note(1, 0, 74, 5), note(2, 3, 69, 2), note(3, 4, 65, 1), note(4, 4, 68, 2)];
+    markFingerMoves(notes);
+    expect(notes.map(fingerLabel)).toEqual(['1', '5', '2', '1←', '2←']);
+    // the same key again: no mark
+    const again = [note(0, 0, 69, 2), note(1, 1, 69, 2)];
+    markFingerMoves(again);
+    expect(again.map(fingerLabel)).toEqual(['2', '2']);
   });
 });
