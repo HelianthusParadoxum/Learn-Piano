@@ -89,6 +89,9 @@ export function PiecePage({ route }: { route: Route }) {
   }
 
   const { score, steps, families } = guide;
+  // a pickup measure is not a full measure
+  const pickup = !!score.measures[0]?.implicit && score.measures.length > 1;
+  const fullMeasures = score.measures.length - (pickup ? 1 : 0);
   const countOf = (hand: 'R' | 'L') => families.filter((f) => f.hand === hand).length;
   const patternChip = (['R', 'L'] as const)
     .filter((h) => countOf(h) > 0)
@@ -121,7 +124,10 @@ export function PiecePage({ route }: { route: Route }) {
               {firstMeasure.beats}/{firstMeasure.beatType}
             </span>
             <span className="chip">♩ = {Math.round(score.tempoMap[0].bpm)}{score.tempoFromFile ? '' : ' (по умолчанию)'}</span>
-            <span className="chip">{score.measures.length} тактов</span>
+            <span className="chip">
+              {fullMeasures} {plural(fullMeasures, 'такт', 'такта', 'тактов')}
+              {pickup ? ' + затакт' : ''}
+            </span>
             <span className="chip" title="Паттерны правой и левой руки разбираются отдельно">
               {patternChip} · {steps.length} {plural(steps.length, 'шаг', 'шага', 'шагов')}
             </span>

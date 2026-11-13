@@ -6,6 +6,7 @@ import { musicXmlFromBytes, parseScore } from '../lib/musicxml';
 import { claudeOmrAvailable, recognizeWithClaude, type OmrProgress } from '../lib/omr/claudeOmr';
 import { IS_ARTIFACT } from '../lib/platform';
 import { deletePiece, listPieces, newPieceRecord, savePiece, storageIsPersistent, type PieceRecord } from '../lib/storage';
+import { plural } from '../lib/patternText';
 
 /** Example pieces are bundled as separate chunks (loaded only when opened). */
 const EXAMPLE_LOADERS = import.meta.glob('../examples/*.musicxml', { query: '?raw', import: 'default' }) as Record<
@@ -87,7 +88,7 @@ export function HomePage() {
       pages: meta.pages,
       recognizer: meta.recognizer,
     });
-    rec.measureCount = score.measures.length;
+    rec.measureCount = score.measures.length - (score.measures[0]?.implicit && score.measures.length > 1 ? 1 : 0);
     await savePiece(rec);
     return rec;
   }
@@ -350,7 +351,7 @@ export function HomePage() {
                   <div className="piece-title">{p.title}</div>
                   <div className="piece-composer">{p.composer || ' '}</div>
                   <div className="piece-meta">
-                    {p.measureCount ? `${p.measureCount} тактов` : ''}
+                    {p.measureCount ? `${p.measureCount} ${plural(p.measureCount, 'такт', 'такта', 'тактов')}` : ''}
                     {total ? ` · ${total} шагов` : ''}
                   </div>
                   {total > 0 && (
