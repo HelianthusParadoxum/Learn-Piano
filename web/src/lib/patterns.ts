@@ -513,17 +513,17 @@ export interface PatternStructure {
 /** Number of full measures of a fragment (its upbeat not counted). */
 const coreLen = (b: Block) => b.endMeasure - (b.coreStart ?? b.startMeasure) + 1;
 
-/** Families of a hand's fragments (in order): each fragment joins the most similar earlier family base. */
+/**
+ * Families of a hand's fragments (in order): each fragment joins the family whose first appearance it resembles
+ * most, or starts a new one. The base to learn first is chosen afterwards (see chooseBase).
+ */
 interface Grouping {
   /** family of each fragment, numbered in order of first appearance */
   family: number[];
-  /** each fragment's match with its family's base (null: the fragment is the base) */
-  match: (WindowMatch | null)[];
 }
 
 function groupFragments(cache: FragmentCache, frags: HandRange[], threshold: number): Grouping {
   const family: number[] = [];
-  const match: (WindowMatch | null)[] = [];
   const bases: number[] = [];
   for (let k = 0; k < frags.length; k++) {
     const L = frags[k].b - frags[k].a + 1;
@@ -546,13 +546,41 @@ function groupFragments(cache: FragmentCache, frags: HandRange[], threshold: num
     if (best < 0 || !bestM) {
       bases.push(k);
       family.push(bases.length - 1);
-      match.push(null);
-    } else {
-      family.push(best);
-      match.push(bestM);
+    } else family.push(best);
+  }
+  return { family };
+}
+
+/**
+ * The base of a pattern family — what is learned first, the other appearances being shown as its variations:
+ * the appearance the others differ from least (fewest notes to relearn or drop over all of them, a changed
+ * length counting half), which need not be the first one; of equal ones the earliest. Every appearance must
+ * resemble the base at the threshold, as it resembles the first one (the family was grouped around it), so the
+ * families stay as they are. `events`: the appearances in order; returns the position of the base among them.
+ */
+export function chooseBase(events: WEvent[][], threshold: number): number {
+  const n = events.length;
+  if (n < 3) return 0; // two appearances differ from each other equally
+  const cost = (i: number) => {
+    let total = 0;
+    for (let j = 0; j < n; j++) {
+      if (j === i) continue;
+      const m = bestMatch(events[i], events[j], threshold, true);
+      if (m.sim < threshold - 1e-9) return Infinity;
+      total += ((1 - m.sim) * (events[i].length + events[j].length)) / 2;
+    }
+    return total;
+  };
+  let best = 0;
+  let bestCost = cost(0);
+  for (let i = 1; i < n; i++) {
+    const c = cost(i);
+    if (c < bestCost - 1e-6) {
+      best = i;
+      bestCost = c;
     }
   }
-  return { family, match };
+  return best;
 }
 
 /** Longest fragment (in measures) that two companion patterns may form together. */
@@ -691,31 +719,34 @@ function analyzeHand(
     mine.push(b);
   }
 
-  const handFamilies: PatternFamily[] = [];
   const ev = (b: Block) => cache.events(b.coreStart ?? b.startMeasure, coreLen(b));
+  // families in order of first appearance; the base of each is the appearance the others differ from least
+  const members: number[][] = [];
+  groups.family.forEach((f, k) => (members[f] ??= []).push(k));
+  const handFamilies: PatternFamily[] = members.map((ks, i) => {
+    const f: PatternFamily = {
+      index: families.length,
+      hand,
+      letter: patternLetter(hand, i),
+      base: mine[ks[chooseBase(ks.map((k) => ev(mine[k])), threshold)]].index,
+      blocks: ks.map((k) => mine[k].index),
+    };
+    families.push(f);
+    return f;
+  });
   const variantCount = new Map<number, number>();
   for (let k = 0; k < mine.length; k++) {
     const b = mine[k];
-    const notes = ev(b);
-    const bestM = groups.match[k];
-    if (!bestM) {
-      const f: PatternFamily = {
-        index: families.length,
-        hand,
-        letter: patternLetter(hand, handFamilies.length),
-        base: b.index,
-        blocks: [b.index],
-      };
-      families.push(f);
-      handFamilies.push(f);
-      b.family = f.index;
+    const f = handFamilies[groups.family[k]];
+    b.family = f.index;
+    if (b.index === f.base) {
       b.label = f.letter;
       continue;
     }
-    const f = handFamilies[groups.family[k]];
     const base = blocks[f.base];
-    f.blocks.push(b.index);
-    b.family = f.index;
+    const notes = ev(b);
+    // the same match as when the family was grouped, now with the chosen base
+    const bestM = bestMatch(ev(base), notes, threshold, true);
     b.similarity = bestM.sim;
     b.transpose = bestM.t;
     if (bestM.steps) b.steps = bestM.steps;
@@ -730,8 +761,9 @@ function analyzeHand(
     // identical (possibly transposed) to an earlier variation of the same pattern?
     let same: Block | undefined;
     let sameM: WindowMatch | undefined;
-    for (const k of f.blocks.slice(0, -1)) {
-      const v = blocks[k];
+    for (const idx of f.blocks) {
+      const v = blocks[idx];
+      if (idx >= b.index) break;
       if (v.role !== 'variation' || coreLen(v) !== coreLen(b)) continue;
       const m = bestMatch(ev(v), notes);
       if (m.sim > 0.999) {
@@ -802,9 +834,9 @@ function correspondingNotes(cache: FragmentCache, a: Block, b: Block, shifted: b
 }
 
 /**
- * Notes of every appearance of a pattern that correspond to notes of its first appearance (same place,
- * pitch moved by the appearance's shift, same length) — used to give every appearance of a pattern the
- * same fingering. Repeats of a variation correspond to that variation (see repeatNotePairs).
+ * Notes of every appearance of a pattern that correspond to notes of its base (same place, pitch moved by
+ * the appearance's shift, same length) — used to give every appearance of a pattern the same fingering.
+ * Repeats of a variation correspond to that variation (see repeatNotePairs).
  */
 export function equalNotePairs(score: Score, blocks: Block[], families: PatternFamily[]): NotePair[] {
   const caches = new Map<Hand, FragmentCache>();
@@ -984,7 +1016,9 @@ export function buildSteps(score: Score, blocks: Block[], families: PatternFamil
     for (const hand of HANDS) {
       for (const f of families) {
         if (f.hand !== hand) continue;
-        if (partOf(blocks[f.base].coreStart ?? blocks[f.base].startMeasure) === p) steps.push({ kind: 'pattern', block: f.base, part: p });
+        // the base is learned in the part where the pattern first appears, also when the base itself comes later
+        const firstPart = Math.min(...f.blocks.map((k) => partOf(blocks[k].coreStart ?? blocks[k].startMeasure)));
+        if (firstPart === p) steps.push({ kind: 'pattern', block: f.base, part: p });
         for (const k of f.blocks) {
           const b = blocks[k];
           if (b.role === 'variation' && partOf(b.coreStart ?? b.startMeasure) === p) steps.push({ kind: 'variation', block: k, part: p });

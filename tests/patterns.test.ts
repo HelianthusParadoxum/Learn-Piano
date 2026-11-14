@@ -20,17 +20,20 @@ function describeStructure(name: string, threshold = DEFAULT_THRESHOLD) {
 }
 
 describe('pattern analysis, separately for each hand', () => {
-  it('finds A A′ B A′ in the right hand and one left-hand pattern in Ode to Joy (threshold 50 %)', () => {
+  it('finds A′ A B A in the right hand and one left-hand pattern in Ode to Joy (threshold 50 %)', () => {
     expect(DEFAULT_THRESHOLD).toBe(0.5);
     const { of, labels, families } = describeStructure('ode-to-joy.musicxml');
-    expect(labels('R')).toEqual(['A', 'A′', 'B', 'A′']);
+    // the base is the phrase that comes back (bars 5–8 and 13–16); the first phrase differs from it in its
+    // last bar (a half cadence), so it is the variation, though it comes first
+    expect(labels('R')).toEqual(['A′', 'A', 'B', 'A']);
     // the left hand: bars 9–16 are a variation of bars 1–8 (about 63 % of the notes match)
     expect(labels('L')).toEqual(['a', 'a′']);
     const R = of('R');
-    expect(R[1].role).toBe('variation');
-    expect(R[3].role).toBe('repeat');
+    expect(R.map((b) => b.role)).toEqual(['variation', 'base', 'base', 'repeat']);
+    expect(R[3].repeatOf).toBe(R[1].index);
+    expect(families.find((f) => f.letter === 'A')!.base).toBe(R[1].index);
     // A′ differs from A only in its last measure
-    const changedMeasures = R[1].diff!.measures.filter((m) => m.changed + m.missing + m.rhythm > 0).map((m) => m.offset);
+    const changedMeasures = R[0].diff!.measures.filter((m) => m.changed + m.missing + m.rhythm > 0).map((m) => m.offset);
     expect(changedMeasures).toEqual([3]);
     expect(families.filter((f) => f.hand === 'R')).toHaveLength(2);
     expect(families.filter((f) => f.hand === 'L')).toHaveLength(1);
@@ -38,8 +41,8 @@ describe('pattern analysis, separately for each hand', () => {
 
   it('a stricter threshold gives more patterns', () => {
     const strict = describeStructure('ode-to-joy.musicxml', 0.8);
-    expect(strict.labels('R')).toEqual(['A', 'A′', 'B', 'A′']);
-    expect(strict.labels('L')).toEqual(['a', 'a′', 'b', 'a′']);
+    expect(strict.labels('R')).toEqual(['A′', 'A', 'B', 'A']);
+    expect(strict.labels('L')).toEqual(['a′', 'a', 'b', 'a']);
     const minuet = describeStructure('minuet-in-g.musicxml', 0.8);
     expect(minuet.families.filter((f) => f.hand === 'R').length).toBeGreaterThan(
       describeStructure('minuet-in-g.musicxml').families.filter((f) => f.hand === 'R').length,
@@ -87,6 +90,9 @@ describe('pattern analysis, separately for each hand', () => {
     expect(parts).toEqual([[0, 15]]);
     const kinds = steps.map((st) => (st.kind === 'pattern' || st.kind === 'variation' ? `${st.kind}:${blocks[st.block].label}` : st.kind));
     expect(kinds.slice(0, 5)).toEqual(['pattern:A', 'variation:A′', 'pattern:B', 'pattern:a', 'variation:a′']);
+    // A is learned from bars 5–8, then the first phrase as its variation
+    const first = steps[0];
+    expect(first.kind === 'pattern' && blocks[first.block].coreStart).toBe(4);
     expect(kinds).toContain('together');
     expect(steps[steps.length - 1]).toMatchObject({ kind: 'assemble', whole: true });
     // chunks for both hands cover the piece; identical chunks are learned once
@@ -97,16 +103,16 @@ describe('pattern analysis, separately for each hand', () => {
     // a repeat leads to the step where its pattern is learned
     const repeat = blocks.find((b) => b.hand === 'R' && b.role === 'repeat')!;
     const target = steps[stepOfBlock(steps, blocks, repeat.index)];
-    expect(target.kind === 'variation' && blocks[target.block].label).toBe('A′');
+    expect(target.kind === 'pattern' && blocks[target.block].label).toBe('A');
   });
 
   it('describes the differences of a variation for its hand only', () => {
     const { s, blocks, families, of } = describeStructure('ode-to-joy.musicxml');
-    const lines = diffLines(s, blocks, families, of('R')[1]);
-    expect(lines).toEqual(['Такт 8 (4-й такт паттерна): в A — ми, ре, ре; здесь — ре, до, до.']);
+    const lines = diffLines(s, blocks, families, of('R')[0]);
+    expect(lines).toEqual(['Такт 4 (4-й такт паттерна): в A — ре, до, до; здесь — ми, ре, ре.']);
     const summary = structureSummary(blocks, families);
     expect(summary.map((h) => [h.hand, h.labels, h.patterns])).toEqual([
-      ['R', 'A A′ B A′', 2],
+      ['R', 'A′ A B A', 2],
       ['L', 'a a′', 1],
     ]);
     expect(summary[0].learn).toBeLessThan(summary[0].measures);
@@ -368,5 +374,61 @@ describe('the end of the piece', () => {
     const last = R[R.length - 1];
     expect(last.endMeasure).toBe(12);
     expect(last.coreStart).toBeLessThan(12);
+  });
+});
+
+describe('the base of a pattern', () => {
+  // own melody, 4/4: a phrase X comes three times; the first time with another ending (a half cadence)
+  const X = ['C5:2 E5:2 G5:2 E5:2', 'F5:2 D5:2 B4:4', 'C5:2 E5:2 A5:2 G5:2', 'C5:8'];
+  const firstX = ['C5:2 E5:2 G5:2 E5:2', 'F5:2 D5:2 B4:4', 'C5:2 E5:2 A5:2 G5:2', 'D5:8'];
+  const Y = ['E5:2 D5:2 C5:2 D5:2', 'E5:2 E5:2 E5:4', 'D5:2 D5:2 E5:2 D5:2', 'G4:8'];
+  const Z = ['A4:4 F4:4', 'G4:4 E4:4', 'F4:4 D4:4', 'C4:8'];
+  const kinds = (bars: string[]) => {
+    const s = scoreOf(bars);
+    const { blocks, families } = analyzePatterns(s);
+    const { steps, parts } = buildSteps(s, blocks, families);
+    return { s, blocks, families, steps, parts };
+  };
+
+  it('is the appearance the others differ from least, also when it comes later', () => {
+    const { blocks, families, steps } = kinds([...firstX, ...Y, ...X, ...Z, ...X]);
+    const R = blocks.filter((b) => b.hand === 'R');
+    expect(R.map((b) => [b.label, b.coreStart])).toEqual([
+      ['A′', 0],
+      ['B', 4],
+      ['A', 8],
+      ['C', 12],
+      ['A', 16],
+    ]);
+    expect(R[0].role).toBe('variation');
+    expect(R[4]).toMatchObject({ role: 'repeat', repeatOf: R[2].index });
+    // the guide teaches the base first, then the first phrase as its variation
+    const first = steps.slice(0, 2).map((st) => (st.kind === 'pattern' || st.kind === 'variation' ? [st.kind, blocks[st.block].coreStart] : st.kind));
+    expect(first).toEqual([
+      ['pattern', 8],
+      ['variation', 0],
+    ]);
+    expect(families.find((f) => f.letter === 'A')!.base).toBe(R[2].index);
+  });
+
+  it('stays the first appearance when the others are no closer to the rest', () => {
+    // two appearances differ from each other equally; with X X′ X the first X is as good as the last
+    expect(rightHand([...X, ...Y, ...firstX, ...Z]).map((b) => b.label)).toEqual(['A', 'B', 'A′', 'C']);
+    expect(rightHand([...X, ...Y, ...firstX, ...Z, ...X]).map((b) => b.label)).toEqual(['A', 'B', 'A′', 'C', 'A']);
+  });
+
+  it('is learned in the part where its pattern first appears, before any of its variations', () => {
+    // 28 bars: learned in two parts; X comes back twice in the second part
+    const { blocks, families, steps, parts } = kinds([...firstX, ...Y, ...Z, ...X, ...Y, ...X, ...Z]);
+    expect(parts.length).toBe(2);
+    const partOf = (m: number) => parts.findIndex(([a, b]) => m >= a && m <= b);
+    const A = families.find((f) => f.hand === 'R' && f.letter === 'A')!;
+    expect(partOf(blocks[A.base].coreStart!)).toBe(1);
+    for (const f of families) {
+      const at = steps.findIndex((st) => st.kind === 'pattern' && st.block === f.base);
+      const step = steps[at];
+      expect(step.part).toBe(Math.min(...f.blocks.map((k) => partOf(blocks[k].coreStart!))));
+      for (const [i, st] of steps.entries()) if (st.kind === 'variation' && blocks[st.block].family === f.index) expect(i).toBeGreaterThan(at);
+    }
   });
 });

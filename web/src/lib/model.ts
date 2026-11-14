@@ -133,11 +133,12 @@ export interface Block {
   /** right hand: "A", "A′", "B"…; left hand: "a", "a′", "b"… — exact repeats carry the label of what they repeat */
   label: string;
   /**
-   * base = first appearance of a pattern; variation = differs from the base; repeat = the same notes as
-   * an earlier block, possibly from another note (`transpose` / `steps`)
+   * base = the appearance of a pattern that is learned first: the one its other appearances differ from least,
+   * not always the first; variation = differs from the base; repeat = the same notes as the base or an earlier
+   * variation, possibly from another note (`transpose` / `steps`)
    */
   role: 'base' | 'variation' | 'repeat';
-  /** for repeats: the earlier identical block (the base or a variation) */
+  /** for repeats: the identical block (the base, or an earlier variation) */
   repeatOf?: number;
   /** transposed copies directly after this block (a sequence) are learned with it: last block of the run */
   sequenceEnd?: number;
@@ -169,7 +170,7 @@ export interface PatternFamily {
   index: number;
   hand: Hand;
   letter: string;
-  /** block index of the first appearance */
+  /** block index of the base: the appearance the others differ from least (ties: the earliest) */
   base: number;
   /** all blocks of the family, in order */
   blocks: number[];

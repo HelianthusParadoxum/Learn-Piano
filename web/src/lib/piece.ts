@@ -83,9 +83,9 @@ export function buildGuide(score: Score, settings: PieceSettings, overrides: Rec
   const { blocks, families, plan } = structureOf(score, settings);
   const fingerOpts = { handSize: settings.handSize, tempo: score.tempoMap[0]?.bpm };
   computeFingering(score.notes, { ...fingerOpts, overrides });
-  // every appearance of a pattern gets the fingers of its first appearance (yours or automatic) on the
-  // notes they share — also when it sounds from another note; a repeat of a variation follows that
-  // variation. A finger you choose for a note of an appearance itself still wins.
+  // every appearance of a pattern gets the fingers of its base (yours or automatic) on the notes they
+  // share — also when it sounds from another note; a repeat of a variation follows that variation. A finger
+  // you choose for a note of an appearance itself still wins.
   const patternFingers: Record<string, number> = {};
   const copy = (pairs: NotePair[]) => {
     let changed = false;

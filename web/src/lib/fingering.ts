@@ -78,7 +78,7 @@ export interface FingeringOptions {
   handSize?: keyof typeof HAND_SCALE;
   /** note.key → finger, set by the user; strongest constraint. */
   overrides?: Record<string, number>;
-  /** note.key → finger copied from the first appearance of the same pattern (same fingers in every repeat) */
+  /** note.key → finger copied from the base of the same pattern (same fingers in every repeat) */
   patternFingers?: Record<string, number>;
   /** Quarter-note tempo (used to decide whether the hand has time to move between notes). */
   tempo?: number;
