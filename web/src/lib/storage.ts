@@ -20,6 +20,8 @@ export interface PieceRecord {
   pages?: Blob[];
   /** How the notes were recognized. */
   recognizer?: 'audiveris' | 'claude';
+  /** What the recognition could not do (lines it could not read…), shown with the piece. */
+  warnings?: string[];
   settings: PieceSettings;
   /** note.key → finger chosen by the user */
   overrides: Record<string, number>;
@@ -125,7 +127,7 @@ export async function deletePiece(id: string): Promise<void> {
 
 export function newPieceRecord(
   partial: Pick<PieceRecord, 'title' | 'composer' | 'sourceName' | 'sourceType' | 'musicXml'> &
-    Partial<Pick<PieceRecord, 'pdf' | 'pages' | 'recognizer'>>,
+    Partial<Pick<PieceRecord, 'pdf' | 'pages' | 'recognizer' | 'warnings'>>,
 ): PieceRecord {
   const now = Date.now();
   return {

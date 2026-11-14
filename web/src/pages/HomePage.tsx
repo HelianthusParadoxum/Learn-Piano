@@ -74,6 +74,7 @@ export function HomePage() {
       pdf?: Blob;
       pages?: Blob[];
       recognizer?: PieceRecord['recognizer'];
+      warnings?: string[];
       suffix?: string;
     },
   ) {
@@ -88,6 +89,7 @@ export function HomePage() {
       pdf: meta.pdf,
       pages: meta.pages,
       recognizer: meta.recognizer,
+      warnings: meta.warnings?.length ? meta.warnings : undefined,
     });
     rec.measureCount = score.measures.length - (score.measures[0]?.implicit && score.measures.length > 1 ? 1 : 0);
     await savePiece(rec);
@@ -166,14 +168,17 @@ export function HomePage() {
     const startedAt = Date.now();
     let pageStartedAt = startedAt;
     let lastPage = 0;
+    let lastDone = -1;
     setJob({ fileName: file.name, phase: 'claude', startedAt });
     try {
       const res = await recognizeWithClaude(
         file,
         (p) => {
           if (!alive.current) return;
-          if (p.page !== lastPage) {
+          // the bar creeps on from the last page started, or the last lines read
+          if (p.total ? p.done !== lastDone : p.page !== lastPage) {
             lastPage = p.page;
+            lastDone = p.done ?? -1;
             pageStartedAt = Date.now();
           }
           setJob({ fileName: file.name, phase: 'claude', claude: { ...p, pageStartedAt }, startedAt });
@@ -187,6 +192,7 @@ export function HomePage() {
         sourceType: isPdf ? 'pdf' : 'image',
         pages: res.pagePreviews,
         recognizer: 'claude',
+        warnings: res.warnings,
       });
       setJob(null);
       navigate({ page: 'piece', pieceId: rec.id, tab: 'score' });
@@ -540,8 +546,14 @@ function ClaudeProgress({ job, elapsed }: { job: JobView; elapsed: number }) {
   let pct = 3;
   if (c?.stage === 'prepare') pct = 3 + (c.pages ? (c.page / c.pages) * 7 : 0);
   if (c?.stage === 'read') {
-    const inPage = 0.92 * (1 - Math.exp(-(Date.now() - c.pageStartedAt) / 45000));
-    pct = 10 + 85 * ((c.page - 1 + inPage) / Math.max(1, c.pages));
+    if (c.total) {
+      // lines read, and the calls running now creeping on while Claude thinks
+      const inCall = 0.9 * (1 - Math.exp(-(Date.now() - c.pageStartedAt) / 60000));
+      pct = 10 + 85 * Math.min(1, ((c.done ?? 0) + (c.running ?? 0) * inCall) / c.total);
+    } else {
+      const inPage = 0.92 * (1 - Math.exp(-(Date.now() - c.pageStartedAt) / 45000));
+      pct = 10 + 85 * ((c.page - 1 + inPage) / Math.max(1, c.pages));
+    }
   }
   if (c?.stage === 'build' || job.phase === 'import') pct = 97;
   return (

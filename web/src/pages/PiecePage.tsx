@@ -211,6 +211,13 @@ export function PiecePage({ route }: { route: Route }) {
           альтерации и ритм. Нашли ошибку в ноте — нажмите на неё в гайде и исправьте прямо здесь (▲ ▼, ♭ ♮ ♯, удалить).
         </div>
       )}
+      {rec.warnings?.length ? (
+        <div className="alert warn recognition-warnings">
+          {rec.warnings.map((w) => (
+            <div key={w}>{w}</div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="tabs" role="tablist">
         <button
