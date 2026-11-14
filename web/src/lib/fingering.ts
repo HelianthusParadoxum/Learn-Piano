@@ -86,6 +86,14 @@ export interface FingeringOptions {
   useScoreFingerings?: boolean;
 }
 
+/** Notes closer than this (seconds between onsets, no rest between) are played legato. */
+const LEGATO_IOI = 0.9;
+/**
+ * A move of a finger by up to this many semitones (to a neighbouring key or one over) is a step: it gets
+ * one chevron (longer moves two) and is easy between long notes.
+ */
+const SHORT_MOVE = 2;
+
 const BLACK = new Set([1, 3, 6, 8, 10]);
 export const isBlackKey = (midi: number) => BLACK.has(((midi % 12) + 12) % 12);
 
@@ -158,12 +166,16 @@ class CostModel {
     return this.spanCost(Math.min(fLow, fHigh), Math.max(fLow, fHigh), high - low, true);
   }
 
-  /** Horizontal cost between two consecutive single notes. */
-  seq(m1: number, f1: number, m2: number, f2: number, legato: boolean): number {
+  /** Horizontal cost between two consecutive single notes `ioi` seconds apart. */
+  seq(m1: number, f1: number, m2: number, f2: number, legato: boolean, ioi = LEGATO_IOI): number {
     const d0 = m2 - m1;
     if (d0 === 0) return f1 === f2 ? 0 : WEIGHTS.repeatedNoteFingerChange;
     if (f1 === f2) {
-      return legato ? WEIGHTS.sameFingerLegato + 0.3 * Math.abs(d0) : WEIGHTS.sameFingerFree + 0.1 * Math.abs(d0);
+      if (legato) return WEIGHTS.sameFingerLegato + 0.3 * Math.abs(d0);
+      // with time to lift it (a long note, a rest) a finger steps to a key a tone or a semitone away
+      // easily, the hand keeping its shape; a leap is no easier with the same finger
+      const step = Math.abs(d0) <= SHORT_MOVE ? Math.min(1, LEGATO_IOI / ioi) : 1;
+      return WEIGHTS.sameFingerFree * step + 0.1 * Math.abs(d0);
     }
     const [fa, fb, d] = this.orient(m1, f1, m2, f2);
     let c = this.spanCost(fa, fb, d);
@@ -200,8 +212,12 @@ class CostModel {
       // further out while the hand stays on the middle note, the size of the reach is already paid for as
       // the span of the second and third notes: it counts as a half change of position, not by distance
       const d = Math.abs(m3 - m1);
-      if (d > 0) c += WEIGHTS.positionChangeHalf + (this.outerReach(m1, m2, f2, m3, f3) ? 0 : 0.5 * d);
-      return c;
+      if (d === 0) return c;
+      if (this.outerReach(m1, m2, f2, m3, f3)) return c + WEIGHTS.positionChangeHalf;
+      // the hand moves on the wider of the two steps: that leap is the move itself, not a stretch of the
+      // hand on top of it — count the movement once, by the larger of the two costs
+      const leap = Math.max(this.beyondRelaxed(m1, f1, m2, f2), this.beyondRelaxed(m2, f2, m3, f3));
+      return c + Math.max(0, WEIGHTS.positionChangeHalf + 0.5 * d - leap);
     }
     const [fa, fb, d] = this.orient(m1, f1, m3, f3);
     const [minP, minC, , , maxC, maxP] = this.span(fa, fb);
@@ -230,6 +246,13 @@ class CostModel {
     if (d12 <= 0) return false;
     const [fa, fb, d] = this.orient(m2, f2, m3, f3);
     return d > 0 && d <= this.span(fa, fb)[4];
+  }
+
+  /** Span cost of two consecutive notes wider than the relaxed span of their fingers (a leap), else 0. */
+  beyondRelaxed(m1: number, f1: number, m2: number, f2: number): number {
+    if (f1 === f2 || m1 === m2) return 0;
+    const [fa, fb, d] = this.orient(m1, f1, m2, f2);
+    return d > this.span(fa, fb)[3] ? this.spanCost(fa, fb, d) : 0;
   }
 
   /** Implied position of the thumb (white-key units) for a note played with finger f. */
@@ -352,7 +375,7 @@ export function fingerHand(allNotes: NoteEvent[], hand: Hand, opts: FingeringOpt
   const legatoBetween = (a: FEvent, b: FEvent) => {
     const ioi = (b.onset - a.onset) * secPerQuarter;
     const gap = b.onset - a.end;
-    return ioi < 0.9 && gap < 0.25;
+    return ioi < LEGATO_IOI && gap < 0.25;
   };
 
   if (n === 1) {
@@ -370,7 +393,7 @@ export function fingerHand(allNotes: NoteEvent[], hand: Hand, opts: FingeringOpt
       for (let p = 0; p < A.states.length; p++) {
         for (let q = 0; q < B.states.length; q++) {
           m[p * B.states.length + q] =
-            transitionCost(model, A, A.states[p], B, B.states[q], legato[i]) + shiftW * Math.abs(A.pos[p] - B.pos[q]);
+            transitionCost(model, A, A.states[p], B, B.states[q], legato[i], secPerQuarter) + shiftW * Math.abs(A.pos[p] - B.pos[q]);
         }
       }
       pair[i] = m;
@@ -522,12 +545,21 @@ function unaryCost(model: CostModel, ev: FEvent, s: number[]): number {
   return c;
 }
 
-function transitionCost(model: CostModel, A: FEvent, sA: number[], B: FEvent, sB: number[], legato: boolean): number {
+function transitionCost(
+  model: CostModel,
+  A: FEvent,
+  sA: number[],
+  B: FEvent,
+  sB: number[],
+  legato: boolean,
+  secPerQuarter: number,
+): number {
   let total = 0;
   let count = 0;
+  const ioi = (B.onset - A.onset) * secPerQuarter;
   for (let a = 0; a < A.notes.length; a++) {
     for (let b = 0; b < B.notes.length; b++) {
-      total += model.seq(A.notes[a].midi, sA[a], B.notes[b].midi, sB[b], legato);
+      total += model.seq(A.notes[a].midi, sA[a], B.notes[b].midi, sB[b], legato, ioi);
       count++;
     }
   }
@@ -585,9 +617,6 @@ export function markFingerMoves(notes: NoteEvent[]): void {
     }
   }
 }
-
-/** A move of up to this many semitones (to a neighbouring key or one over) gets one chevron, longer ones two. */
-const SHORT_MOVE = 2;
 
 /** The move of a finger from one key to another (undefined: the same key). */
 export function fingerMove(from: number, to: number): FingerMove | undefined {
