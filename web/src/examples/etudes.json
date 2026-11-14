@@ -6,112 +6,132 @@
       "composer": "И. Ф. Ф. Бургмюллер",
       "edition": "Collection Litolff, 19th Century",
       "typeset": "Bas Wassink",
+      "licenses": [],
+      "changes": "",
       "items": [
         {
           "file": "burgmuller-100-01.musicxml",
           "number": 1,
+          "label": "№ 1",
           "title": "Откровенность",
           "original": "La candeur"
         },
         {
           "file": "burgmuller-100-02.musicxml",
           "number": 2,
+          "label": "№ 2",
           "title": "Арабеска",
           "original": "Arabesque"
         },
         {
           "file": "burgmuller-100-03.musicxml",
           "number": 3,
+          "label": "№ 3",
           "title": "Пастораль",
           "original": "Pastorale"
         },
         {
           "file": "burgmuller-100-04.musicxml",
           "number": 4,
+          "label": "№ 4",
           "title": "Маленькое собрание",
           "original": "Petite réunion"
         },
         {
           "file": "burgmuller-100-05.musicxml",
           "number": 5,
+          "label": "№ 5",
           "title": "Невинность",
           "original": "Innocence"
         },
         {
           "file": "burgmuller-100-06.musicxml",
           "number": 6,
+          "label": "№ 6",
           "title": "Успех",
           "original": "Progrès"
         },
         {
           "file": "burgmuller-100-07.musicxml",
           "number": 7,
+          "label": "№ 7",
           "title": "Чистый ручеёк",
           "original": "Le courant limpide"
         },
         {
           "file": "burgmuller-100-08.musicxml",
           "number": 8,
+          "label": "№ 8",
           "title": "Грациозная",
           "original": "La gracieuse"
         },
         {
           "file": "burgmuller-100-09.musicxml",
           "number": 9,
+          "label": "№ 9",
           "title": "Охота",
           "original": "La chasse"
         },
         {
           "file": "burgmuller-100-10.musicxml",
           "number": 10,
+          "label": "№ 10",
           "title": "Нежный цветок",
           "original": "Tendre fleur"
         },
         {
           "file": "burgmuller-100-11.musicxml",
           "number": 11,
+          "label": "№ 11",
           "title": "Трясогузка",
           "original": "La bergeronnette"
         },
         {
           "file": "burgmuller-100-12.musicxml",
           "number": 12,
+          "label": "№ 12",
           "title": "Прощание",
           "original": "Adieu"
         },
         {
           "file": "burgmuller-100-13.musicxml",
           "number": 13,
+          "label": "№ 13",
           "title": "Утешение",
           "original": "Consolation"
         },
         {
           "file": "burgmuller-100-14.musicxml",
           "number": 14,
+          "label": "№ 14",
           "title": "Штирийский танец",
           "original": "La styrienne"
         },
         {
           "file": "burgmuller-100-15.musicxml",
           "number": 15,
+          "label": "№ 15",
           "title": "Баллада",
           "original": "Ballade"
         },
         {
           "file": "burgmuller-100-16.musicxml",
           "number": 16,
+          "label": "№ 16",
           "title": "Нежная жалоба",
           "original": "Douce plainte"
         },
         {
           "file": "burgmuller-100-17.musicxml",
           "number": 17,
+          "label": "№ 17",
           "title": "Болтунья",
           "original": "La babillarde"
         },
         {
           "file": "burgmuller-100-18.musicxml",
           "number": 18,
+          "label": "№ 18",
           "title": "Беспокойство",
           "original": "Inquiétude"
         }
@@ -121,122 +141,485 @@
       "id": "czerny-821",
       "title": "160 восьмитактовых упражнений, соч. 821",
       "composer": "К. Черни",
-      "edition": "IMLSP; Leipzig: Edition Peters, n.d.1888. Plate 6990-6993.; IMLSP; Leipzig: Edition Peters, n.d.[1888]. Plate 6990-6993.",
+      "edition": "IMLSP; Leipzig: Edition Peters, n.d.1888. Plate 6990-6993",
       "typeset": "Manuel Castejon Limas",
+      "licenses": [],
+      "changes": "",
       "items": [
         {
           "file": "czerny-821-01.musicxml",
           "number": 1,
+          "label": "№ 1",
           "title": "Упражнение № 1",
           "original": ""
         },
         {
           "file": "czerny-821-02.musicxml",
           "number": 2,
+          "label": "№ 2",
           "title": "Упражнение № 2",
           "original": ""
         },
         {
           "file": "czerny-821-03.musicxml",
           "number": 3,
+          "label": "№ 3",
           "title": "Упражнение № 3",
           "original": ""
         },
         {
           "file": "czerny-821-04.musicxml",
           "number": 4,
+          "label": "№ 4",
           "title": "Упражнение № 4",
           "original": ""
         },
         {
           "file": "czerny-821-05.musicxml",
           "number": 5,
+          "label": "№ 5",
           "title": "Упражнение № 5",
           "original": ""
         },
         {
           "file": "czerny-821-06.musicxml",
           "number": 6,
+          "label": "№ 6",
           "title": "Упражнение № 6",
           "original": ""
         },
         {
           "file": "czerny-821-07.musicxml",
           "number": 7,
+          "label": "№ 7",
           "title": "Упражнение № 7",
           "original": ""
         },
         {
           "file": "czerny-821-08.musicxml",
           "number": 8,
+          "label": "№ 8",
           "title": "Упражнение № 8",
           "original": ""
         },
         {
           "file": "czerny-821-09.musicxml",
           "number": 9,
+          "label": "№ 9",
           "title": "Упражнение № 9",
           "original": ""
         },
         {
           "file": "czerny-821-10.musicxml",
           "number": 10,
+          "label": "№ 10",
           "title": "Упражнение № 10",
           "original": ""
         },
         {
           "file": "czerny-821-11.musicxml",
           "number": 11,
+          "label": "№ 11",
           "title": "Упражнение № 11",
           "original": ""
         },
         {
           "file": "czerny-821-12.musicxml",
           "number": 12,
+          "label": "№ 12",
           "title": "Упражнение № 12",
           "original": ""
         },
         {
           "file": "czerny-821-13.musicxml",
           "number": 13,
+          "label": "№ 13",
           "title": "Упражнение № 13",
           "original": ""
         },
         {
           "file": "czerny-821-14.musicxml",
           "number": 14,
+          "label": "№ 14",
           "title": "Упражнение № 14",
           "original": ""
         },
         {
           "file": "czerny-821-15.musicxml",
           "number": 15,
+          "label": "№ 15",
           "title": "Упражнение № 15",
           "original": ""
         },
         {
           "file": "czerny-821-16.musicxml",
           "number": 16,
+          "label": "№ 16",
           "title": "Упражнение № 16",
           "original": ""
         },
         {
           "file": "czerny-821-17.musicxml",
           "number": 17,
+          "label": "№ 17",
           "title": "Упражнение № 17",
           "original": ""
         },
         {
           "file": "czerny-821-18.musicxml",
           "number": 18,
+          "label": "№ 18",
           "title": "Упражнение № 18",
           "original": ""
         },
         {
           "file": "czerny-821-19.musicxml",
           "number": 19,
+          "label": "№ 19",
           "title": "Упражнение № 19",
           "original": ""
+        }
+      ]
+    },
+    {
+      "id": "diabelli-149",
+      "title": "28 мелодических упражнений в четыре руки, соч. 149 — партия primo",
+      "composer": "А. Диабелли",
+      "edition": "",
+      "typeset": "Alberto Simões",
+      "licenses": [
+        {
+          "name": "CC BY-SA 3.0",
+          "url": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "items": []
+        }
+      ],
+      "changes": "Изменения: ноты переведены из LilyPond в MusicXML, взята только партия primo (ученика), без партии учителя, в нескольких аккордах пальцы записаны по порядку нот аккорда. Ноты в приложении — под той же лицензией.",
+      "items": [
+        {
+          "file": "diabelli-149-01.musicxml",
+          "number": 1,
+          "label": "№ 1",
+          "title": "Andante",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-02.musicxml",
+          "number": 2,
+          "label": "№ 2",
+          "title": "Andante cantabile",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-03.musicxml",
+          "number": 3,
+          "label": "№ 3",
+          "title": "Moderato",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-04.musicxml",
+          "number": 4,
+          "label": "№ 4",
+          "title": "Allegro",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-05.musicxml",
+          "number": 5,
+          "label": "№ 5",
+          "title": "Allegretto",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-06.musicxml",
+          "number": 6,
+          "label": "№ 6",
+          "title": "Allegro и трио",
+          "original": "Allegro. Trio"
+        },
+        {
+          "file": "diabelli-149-07.musicxml",
+          "number": 7,
+          "label": "№ 7",
+          "title": "Марш и трио",
+          "original": "Marcia. Trio"
+        },
+        {
+          "file": "diabelli-149-08.musicxml",
+          "number": 8,
+          "label": "№ 8",
+          "title": "Moderato",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-09.musicxml",
+          "number": 9,
+          "label": "№ 9",
+          "title": "Allegretto",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-10.musicxml",
+          "number": 10,
+          "label": "№ 10",
+          "title": "Allegro",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-11.musicxml",
+          "number": 11,
+          "label": "№ 11",
+          "title": "Романс",
+          "original": "Romanze. Andantino"
+        },
+        {
+          "file": "diabelli-149-12.musicxml",
+          "number": 12,
+          "label": "№ 12",
+          "title": "Andante",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-13.musicxml",
+          "number": 13,
+          "label": "№ 13",
+          "title": "Allegro",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-14.musicxml",
+          "number": 14,
+          "label": "№ 14",
+          "title": "Полонез и трио",
+          "original": "Polonaise. Allegretto. Trio"
+        },
+        {
+          "file": "diabelli-149-15.musicxml",
+          "number": 15,
+          "label": "№ 15",
+          "title": "Andante cantabile",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-16.musicxml",
+          "number": 16,
+          "label": "№ 16",
+          "title": "Скерцо и трио",
+          "original": "Scherzo. Allegro vivace. Trio"
+        },
+        {
+          "file": "diabelli-149-17.musicxml",
+          "number": 17,
+          "label": "№ 17",
+          "title": "Рондино",
+          "original": "Rondino. Allegro"
+        },
+        {
+          "file": "diabelli-149-18.musicxml",
+          "number": 18,
+          "label": "№ 18",
+          "title": "Andante cantabile",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-19.musicxml",
+          "number": 19,
+          "label": "№ 19",
+          "title": "Allegretto",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-20.musicxml",
+          "number": 20,
+          "label": "№ 20",
+          "title": "Венгерский танец",
+          "original": "Hongroise"
+        },
+        {
+          "file": "diabelli-149-21.musicxml",
+          "number": 21,
+          "label": "№ 21",
+          "title": "Andante amoroso",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-22.musicxml",
+          "number": 22,
+          "label": "№ 22",
+          "title": "Allegretto",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-23.musicxml",
+          "number": 23,
+          "label": "№ 23",
+          "title": "Полонез",
+          "original": "Polonaise"
+        },
+        {
+          "file": "diabelli-149-24.musicxml",
+          "number": 24,
+          "label": "№ 24",
+          "title": "Andante cantabile",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-25.musicxml",
+          "number": 25,
+          "label": "№ 25",
+          "title": "Allegro",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-26.musicxml",
+          "number": 26,
+          "label": "№ 26",
+          "title": "Alla turca",
+          "original": "Alla Turca. Allegro"
+        },
+        {
+          "file": "diabelli-149-27.musicxml",
+          "number": 27,
+          "label": "№ 27",
+          "title": "Andante",
+          "original": ""
+        },
+        {
+          "file": "diabelli-149-28.musicxml",
+          "number": 28,
+          "label": "№ 28",
+          "title": "Allegro",
+          "original": ""
+        }
+      ]
+    },
+    {
+      "id": "diabelli-163",
+      "title": "«Радости юности», сонатины № 1 и 2 в четыре руки, соч. 163 — партия primo",
+      "composer": "А. Диабелли",
+      "edition": "",
+      "typeset": "Alberto Simões",
+      "licenses": [
+        {
+          "name": "CC BY-SA 3.0",
+          "url": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "items": []
+        }
+      ],
+      "changes": "Изменения: ноты переведены из LilyPond в MusicXML, взята только партия primo (ученика), без партии учителя, в нескольких аккордах пальцы записаны по порядку нот аккорда. Ноты в приложении — под той же лицензией.",
+      "items": [
+        {
+          "file": "diabelli-163-11.musicxml",
+          "number": 11,
+          "label": "№ 1, ч. I",
+          "title": "Andante",
+          "original": ""
+        },
+        {
+          "file": "diabelli-163-12.musicxml",
+          "number": 12,
+          "label": "№ 1, ч. II",
+          "title": "Allegro moderato",
+          "original": ""
+        },
+        {
+          "file": "diabelli-163-13.musicxml",
+          "number": 13,
+          "label": "№ 1, ч. III",
+          "title": "Романс",
+          "original": "Romanze. Andantino"
+        },
+        {
+          "file": "diabelli-163-14.musicxml",
+          "number": 14,
+          "label": "№ 1, ч. IV",
+          "title": "Рондо",
+          "original": "Rondo. Allegro vivace"
+        },
+        {
+          "file": "diabelli-163-21.musicxml",
+          "number": 21,
+          "label": "№ 2, ч. I",
+          "title": "Andante maestoso",
+          "original": ""
+        },
+        {
+          "file": "diabelli-163-22.musicxml",
+          "number": 22,
+          "label": "№ 2, ч. II",
+          "title": "Allegro moderato",
+          "original": ""
+        },
+        {
+          "file": "diabelli-163-23.musicxml",
+          "number": 23,
+          "label": "№ 2, ч. III",
+          "title": "Andantino cantabile",
+          "original": ""
+        },
+        {
+          "file": "diabelli-163-24.musicxml",
+          "number": 24,
+          "label": "№ 2, ч. IV",
+          "title": "Рондо",
+          "original": "Rondo. Allegro moderato"
+        }
+      ]
+    },
+    {
+      "id": "schumann-68",
+      "title": "Альбом для юношества, соч. 68",
+      "composer": "Р. Шуман",
+      "edition": "Peters",
+      "typeset": "Philippe Hézaine",
+      "licenses": [
+        {
+          "name": "CC BY-SA 2.5",
+          "url": "https://creativecommons.org/licenses/by-sa/2.5/",
+          "items": [
+            "№ 1",
+            "№ 5",
+            "№ 36"
+          ]
+        },
+        {
+          "name": "CC BY-SA 3.0",
+          "url": "https://creativecommons.org/licenses/by-sa/3.0/",
+          "items": [
+            "№ 3"
+          ]
+        }
+      ],
+      "changes": "Изменения: ноты переведены из LilyPond в MusicXML, в нескольких аккордах пальцы записаны по порядку нот аккорда. Ноты в приложении — под той же лицензией.",
+      "items": [
+        {
+          "file": "schumann-68-01.musicxml",
+          "number": 1,
+          "label": "№ 1",
+          "title": "Мелодия",
+          "original": "Melodie"
+        },
+        {
+          "file": "schumann-68-03.musicxml",
+          "number": 3,
+          "label": "№ 3",
+          "title": "Песенка",
+          "original": "Trällerliedchen"
+        },
+        {
+          "file": "schumann-68-05.musicxml",
+          "number": 5,
+          "label": "№ 5",
+          "title": "Пьеска",
+          "original": "Stückchen"
+        },
+        {
+          "file": "schumann-68-36.musicxml",
+          "number": 36,
+          "label": "№ 36",
+          "title": "Песня итальянских моряков",
+          "original": "Lied italienischer Marinari"
         }
       ]
     }

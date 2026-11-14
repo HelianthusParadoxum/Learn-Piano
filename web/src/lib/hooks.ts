@@ -27,7 +27,7 @@ export function parseRoute(hash: string): Route {
   // links from the first version: #/piece/<id>/guide/3
   const parts = h.replace(/^\//, '').split('/').filter(Boolean);
   if (parts[0] === 'piece' && parts[1]) {
-    const tab = (parts[2] as Route['tab']) || 'guide';
+    const tab = (parts[2] as Route['tab']) || 'score';
     const step = parts[3] ? Math.max(1, parseInt(parts[3], 10) || 1) : undefined;
     return { page: 'piece', pieceId: decodeURIComponent(parts[1]), tab, step };
   }

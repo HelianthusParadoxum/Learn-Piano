@@ -620,6 +620,13 @@ button {
   font-size: 12px;
   font-style: italic;
 }
+.piece-rights {
+  margin-top: 6px;
+  max-width: 820px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
 .etude-credit {
   margin-top: 4px;
 }

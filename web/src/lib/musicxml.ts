@@ -523,6 +523,7 @@ export function parseScoreDocument(doc: XMLDocument, fallbackTitle = ''): Score 
   return {
     title: extractTitle(root) || fallbackTitle || 'Без названия',
     composer: extractComposer(root),
+    rights: extractRights(root),
     measures,
     notes,
     staves,
@@ -609,6 +610,17 @@ function extractTitle(root: Element): string {
       !/\.(pdf|xml|mxl|png|jpe?g|tiff?)$/i.test(t),
   );
   return candidates[0] || '';
+}
+
+function extractRights(root: Element): string | undefined {
+  const ident = child(root, 'identification');
+  const text = ident
+    ? children(ident, 'rights')
+        .map((r) => r.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ')
+    : '';
+  return text || undefined;
 }
 
 function extractComposer(root: Element): string {

@@ -104,7 +104,7 @@ export function HomePage() {
       if (isXml) {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const rec = await importXml(musicXmlFromBytes(bytes, file.name), { sourceName: file.name, sourceType: 'musicxml' });
-        navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: 1 });
+        navigate({ page: 'piece', pieceId: rec.id, tab: 'score' });
       } else if (isPdf || isImage) {
         if (IS_ARTIFACT) await recognizeByClaude(file, isPdf);
         else await recognizePdf(file);
@@ -150,7 +150,7 @@ export function HomePage() {
         first ??= rec;
       }
       setJob(null);
-      if (first) navigate({ page: 'piece', pieceId: first.id, tab: 'guide', step: 1 });
+      if (first) navigate({ page: 'piece', pieceId: first.id, tab: 'score' });
     } catch (e) {
       if (alive.current) setJob({ fileName: file.name, phase: 'error', error: String((e as Error).message || e), startedAt });
     }
@@ -189,7 +189,7 @@ export function HomePage() {
         recognizer: 'claude',
       });
       setJob(null);
-      navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: 1 });
+      navigate({ page: 'piece', pieceId: rec.id, tab: 'score' });
     } catch (e) {
       if (!alive.current) return;
       const code = (e as { code?: string }).code;
@@ -205,14 +205,14 @@ export function HomePage() {
     try {
       const existing = pieces?.find((p) => p.sourceType === 'example' && p.sourceName === ex.file);
       if (existing) {
-        navigate({ page: 'piece', pieceId: existing.id, tab: 'guide', step: 1 });
+        navigate({ page: 'piece', pieceId: existing.id, tab: 'score' });
         return;
       }
       const load = EXAMPLE_LOADERS[`../examples/${ex.file}`];
       if (!load) throw new Error('Пример не найден');
       const xml = await load();
       const rec = await importXml(xml, { sourceName: ex.file, sourceType: 'example' });
-      navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: 1 });
+      navigate({ page: 'piece', pieceId: rec.id, tab: 'score' });
     } catch (e) {
       setError(String((e as Error).message || e));
     }
@@ -239,8 +239,8 @@ export function HomePage() {
           </p>
           <ol className="hero-steps">
             <li><b>Загрузка</b> — PDF или MusicXML</li>
+            <li><b>Вся пьеса</b> — структура «A A′ B…», прослушивание, переход к любому шагу</li>
             <li><b>Гайд</b> — паттерны каждой руки, затем обе руки вместе</li>
-            <li><b>Вся пьеса</b> — структура «A A′ B…», переход к любому шагу</li>
           </ol>
         </div>
         <div
@@ -333,7 +333,7 @@ export function HomePage() {
               const learned = p.learned.length;
               const total = p.blockCount ?? 0;
               return (
-                <div key={p.id} className="piece-card" onClick={() => navigate({ page: 'piece', pieceId: p.id, tab: 'guide', step: (p.lastBlock ?? 0) + 1 })}>
+                <div key={p.id} className="piece-card" onClick={() => navigate({ page: 'piece', pieceId: p.id, tab: 'score' })}>
                   <div className="piece-card-top">
                     <span className={`source-tag ${p.sourceType}`}>
                       {p.sourceType === 'pdf' ? 'PDF' : p.sourceType === 'image' ? 'Фото' : p.sourceType === 'example' ? 'Пример' : 'MusicXML'}
@@ -392,12 +392,13 @@ export function HomePage() {
       </section>
 
       <section className="section">
-        <h2>Этюды с аппликатурой издания</h2>
+        <h2>Этюды и пьесы с аппликатурой издания</h2>
         <p className="muted small">
-          Ноты и пальцы — из старых изданий, перешедших в общественное достояние. Пальцы, напечатанные в издании,
-          приложение соблюдает, а для остальных нот подбирает сам.
+          Ноты и пальцы — из старых изданий в наборе Mutopia Project: общественное достояние или свободная лицензия
+          Creative Commons (указана у сборника). Пальцы, напечатанные в издании, приложение соблюдает, а для остальных
+          нот подбирает сам. Пьесы Диабелли — партия ученика (primo) из ансамблей в четыре руки.
         </p>
-        {etudes.collections.map((c) => (
+        {ETUDES.map((c) => (
           <details key={c.id} className="etude-collection">
             <summary>
               <b>{c.composer}</b>. {c.title}
@@ -409,7 +410,7 @@ export function HomePage() {
             <div className="etude-list">
               {c.items.map((it) => (
                 <button key={it.file} className="etude-item" onClick={() => void openExample(it)}>
-                  <span className="etude-no">№ {it.number}</span>
+                  <span className="etude-no">{it.label}</span>
                   <span className="etude-names">
                     <span className="etude-title">{it.title.replace(/^Упражнение № \d+$/, 'Упражнение')}</span>
                     {it.original && <span className="etude-original">{it.original}</span>}
@@ -417,12 +418,57 @@ export function HomePage() {
                 </button>
               ))}
             </div>
-            <div className="muted small etude-credit">
-              Издание: {c.edition}. Набор: {c.typeset}, Mutopia Project (mutopiaproject.org) — общественное достояние.
-            </div>
+            <EtudeCredit c={c} />
           </details>
         ))}
       </section>
+    </div>
+  );
+}
+
+interface EtudeCollection {
+  id: string;
+  title: string;
+  composer: string;
+  edition: string;
+  typeset: string;
+  /** none: public domain; several: the pieces (labels) under each */
+  licenses: { name: string; url: string; items: string[] }[];
+  changes: string;
+  items: { file: string; number: number; label: string; title: string; original: string }[];
+}
+const ETUDES = etudes.collections as EtudeCollection[];
+
+/** Who typeset the notes and under which license (CC BY-SA asks to name them, the license and the changes). */
+function EtudeCredit({ c }: { c: EtudeCollection }) {
+  const link = (l: EtudeCollection['licenses'][number]) => (
+    <a href={l.url} target="_blank" rel="noreferrer">
+      {l.name}
+    </a>
+  );
+  return (
+    <div className="muted small etude-credit">
+      {c.edition && <>Издание: {c.edition}. </>}
+      Набор: {c.typeset}, Mutopia Project (
+      <a href="https://www.mutopiaproject.org" target="_blank" rel="noreferrer">
+        mutopiaproject.org
+      </a>
+      )
+      {c.licenses.length === 0 && <> — общественное достояние.</>}
+      {c.licenses.length === 1 && <>. Лицензия: {link(c.licenses[0])}.</>}
+      {c.licenses.length > 1 && (
+        <>
+          . Лицензии:{' '}
+          {c.licenses.map((l, i) => (
+            <span key={l.name}>
+              {i > 0 && ', '}
+              {link(l)} ({l.items.join(', ')})
+            </span>
+          ))}
+          .
+        </>
+      )}
+      {c.changes && <> {c.changes}</>}
     </div>
   );
 }

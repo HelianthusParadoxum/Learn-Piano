@@ -8,10 +8,11 @@ tuplets (\\times, \\tuplet), grace notes, \\repeat volta with \\alternative (wri
 endings) and \\repeat unfold, \\partial, key / time / clef changes, \\change Staff, tempo and fingerings (c-1,
 c^2, c_3, <c-1 e-3>). Markup, dynamics, articulations, slurs, overrides and other layout commands are skipped.
 Anything else stops the conversion with an error instead of guessing, and every bar check (|) of the source must
-fall on a barline.
+fall on a barline. Of several \\score blocks it takes the first printed one (with \\layout); --score Primo takes the
+printed scores whose text contains "Primo" (one part of a piano duet), one after another.
 
 usage: python3 scripts/ly2musicxml.py input.ly output.musicxml --title "..." --composer "..." [--rights "..."]
-       [--source "..."] [--tempo 100]
+       [--source "..."] [--tempo 100] [--score Primo]
 """
 from __future__ import annotations
 
@@ -166,6 +167,8 @@ class Post:
     fingers: list[int] = field(default_factory=list)
     tie: bool = False
     below: bool = False  # the (last) fingering was written below (_)
+    # fingers written after a whole chord (<c e g>4-1): given to its notes once the pitches are known
+    chord_fingers: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -184,7 +187,7 @@ ARTICULATIONS = {'staccato', 'staccatissimo', 'accent', 'marcato', 'tenuto', 'po
                  'coda', 'varcoda', 'arpeggio', 'glissando', 'laissezVibrer', 'repeatTie', 'startTrillSpan',
                  'stopTrillSpan', 'sustainOn', 'sustainOff', 'sostenutoOn', 'sostenutoOff', 'unaCorda', 'treCorde',
                  'startTextSpan', 'stopTextSpan', 'startGroup', 'stopGroup', 'harmonic', 'halfopen', 'lheel',
-                 'rheel', 'ltoe', 'rtoe', 'signumcongruentiae', 'tied'}
+                 'rheel', 'ltoe', 'rtoe', 'signumcongruentiae', 'tied', 'noBeam', 'sustainDown', 'sustainUp'}
 # commands without arguments that only change the layout
 TOGGLES = {'voiceOne', 'voiceTwo', 'voiceThree', 'voiceFour', 'oneVoice', 'stemUp', 'stemDown', 'stemNeutral',
            'slurUp', 'slurDown', 'slurNeutral', 'slurDashed', 'slurDotted', 'slurSolid', 'tieUp', 'tieDown',
@@ -203,15 +206,23 @@ TOGGLES = {'voiceOne', 'voiceTwo', 'voiceThree', 'voiceFour', 'oneVoice', 'stemU
            'sustainOn', 'sustainOff', 'startStaff', 'stopStaff', 'balloonLengthOn', 'balloonLengthOff', 'oneVoiceOn',
            'staffUp', 'staffDown', 'tabFullNotation', 'predefinedFretboardsOn', 'predefinedFretboardsOff',
            'improvisationOn', 'improvisationOff', 'palmMuteOn', 'palmMuteOff', 'bassFigureStaffAlignmentUp',
+           'setTextCresc', 'setTextDecresc', 'setTextDecr', 'setTextDim', 'setHairpinCresc', 'setHairpinDecresc',
+           'setHairpinDim', 'deprecatedcresc', 'deprecateddim', 'deprecatedendcresc', 'deprecatedenddim',
+           'textSpannerUp', 'textSpannerDown', 'textSpannerNeutral',
            'pointAndClickOff', 'pointAndClickOn', 'ignoreClick'}
 SKIP_CONTEXTS = {'Dynamics', 'Lyrics', 'FiguredBass', 'ChordNames', 'FretBoards', 'NullVoice', 'TabStaff',
                  'TabVoice', 'RhythmicStaff', 'DrumStaff', 'DrumVoice', 'Devnull'}
 
 
 class Parser:
-    def __init__(self, src: str):
+    def __init__(self, src: str, select: str | None = None):
+        self.src = src
         self.toks = tokenize(src)
         self.i = 0
+        # the printed scores (\score with \layout) whose text contains `select`, one after another; without it,
+        # the first printed score
+        self.select = select.lower() if select else None
+        self.scores: list[tuple[Node, bool, str]] = []
         self.vars: dict[str, tuple[str, object]] = {}
         self.lang = 'nederlands'
         self.names = note_names(self.lang)
@@ -343,9 +354,19 @@ class Parser:
                 pass
             else:
                 raise LyError(f'unexpected {t.val!r} at top level ({t.pos})')
-        if self.score is None:
-            raise LyError('no \\score')
+        self.score = self.pick_score()
         return self.score
+
+    def pick_score(self) -> Node:
+        if not self.scores:
+            raise LyError('no \\score')
+        printed = [s for s in self.scores if s[1]] or self.scores
+        if not self.select:
+            return printed[0][0]
+        chosen = [m for m, _, text in printed if self.select in text.lower()]
+        if not chosen:
+            raise LyError(f'no \\score with {self.select!r}')
+        return chosen[0] if len(chosen) == 1 else Node('seq', (chosen,))
 
     def set_lang(self, lang: str):
         self.lang = lang
@@ -391,7 +412,7 @@ class Parser:
         return ('music', self.parse_music())
 
     def parse_score(self):
-        self.expect('sym', '{')
+        start = self.expect('sym', '{').pos
         music = None
         has_layout = False
         while not self.at('sym', '}'):
@@ -407,13 +428,9 @@ class Parser:
                 m = self.parse_music()
                 if music is None:
                     music = m
-        self.next()
-        if music is not None and (self.score is None or (has_layout and not self.score_has_layout)):
-            if self.score is None or has_layout:
-                self.score = music
-                self.score_has_layout = has_layout
-
-    score_has_layout = False
+        end = self.next().pos
+        if music is not None:
+            self.scores.append((music, has_layout, self.src[start:end]))
 
     # -- music
     def parse_music(self) -> Node:
@@ -451,7 +468,8 @@ class Parser:
             return Node('barcheck')
         if t.kind == 'scheme':
             self.next()
-            return Node('nothing')
+            m = re.fullmatch(r'#\(set-octavation\s+(-?\d+)\s*\)', t.val.strip())  # the old \ottava
+            return Node('ottava', (int(m.group(1)),)) if m else Node('nothing')
         raise LyError(f'unexpected {t.val!r} in music at {t.pos}')
 
     def parse_into(self, items: list[Node]):
@@ -647,17 +665,10 @@ class Parser:
         if not notes:
             return Node('nothing')
         if post.fingers:
-            order = sorted(range(len(notes)), key=lambda j: notes[j][0].marks * 7 + notes[j][0].step)
-            if len(post.fingers) == 1:
-                target = [order[0] if post.below else order[-1]]
-            elif len(post.fingers) <= len(notes):
-                target = order[::-1][:len(post.fingers)] if post.below else order[:len(post.fingers)]
-            else:
+            if len(post.fingers) > len(notes):
                 raise LyError('more fingerings than chord notes')
-            for j, f in zip(target, post.fingers):
-                if not notes[j][1].fingers:
-                    notes[j][1].fingers.append(f)
-            post.fingers = []
+            # in \relative the pitches are not known yet: the evaluator gives these fingers to the notes
+            post.chord_fingers, post.fingers = post.fingers, []
         if post.tie:
             for _, np in notes:
                 np.tie = True
@@ -691,6 +702,13 @@ class Parser:
             return Node('relative', (ref, self.parse_music()))
         if c == 'absolute':
             return self.parse_music()
+        if c == 'applyMusic':  # a Scheme function over the music, e.g. #unfold-repeats in a MIDI-only score
+            if not self.at('scheme'):
+                raise LyError(f'\\applyMusic without a Scheme function at {t.pos}')
+            self.next()
+            return self.parse_music()
+        if c == 'unfoldRepeats':  # only in MIDI scores, which are not converted
+            return self.parse_music()
         if c == 'fixed':
             ref = self.parse_pitch()
             return Node('fixed', (ref, self.parse_music()))
@@ -713,7 +731,7 @@ class Parser:
             self.parse_music()  # the grace notes after the main note are left out
             return main
         if c == 'repeat':
-            kind = self.expect('word').val
+            kind = self.next().val.strip('"') if self.at('string') else self.expect('word').val
             n = int(self.expect('number').val)
             body = self.parse_music()
             alts = []
@@ -723,6 +741,8 @@ class Parser:
                 while not self.at('sym', '}'):
                     alts.append(self.parse_music())
                 self.next()
+            if kind == 'tremolo':  # the same notes as played: the body n times
+                kind = 'unfold'
             if kind not in ('volta', 'unfold', 'percent'):
                 raise LyError(f'\\repeat {kind} is not supported')
             return Node('repeat', (kind, n, body, alts))
@@ -780,8 +800,7 @@ class Parser:
             self.skip_markup()
             return Node('nothing')
         if c in ('set', 'unset', 'override', 'revert', 'temporary', 'undo', 'omit', 'hide'):
-            self.skip_property(c)
-            return Node('nothing')
+            return self.skip_property(c) or Node('nothing')
         if c == 'once':
             return self.parse_music()  # applies to the next command
         if c == 'tweak':
@@ -791,9 +810,15 @@ class Parser:
             self.next()
             self.next()
             return Node('nothing')
-        if c == 'ottava':
-            self.next()
-            return Node('nothing')
+        if c == 'ottava':  # \ottava #1, \ottava 1, \ottava #-1, \ottava -1
+            v = self.next()
+            sign = 1
+            if v.kind == 'sym' and v.val == '-' and self.at('number'):
+                sign, v = -1, self.next()
+            m = re.fullmatch(r'#?\s*(-?\d+)', v.val.strip()) if v.kind in ('scheme', 'number') else None
+            if not m:
+                raise LyError(f'\\ottava {v.val} is not supported ({v.pos})')
+            return Node('ottava', (sign * int(m.group(1)),))
         if c == 'accidentalStyle':
             self.next()
             while self.at('sym', '.'):
@@ -818,27 +843,33 @@ class Parser:
             return Node('nothing')
         raise LyError(f'unknown command {t.val} at {t.pos}')
 
-    def skip_property(self, c: str):
+    def skip_property(self, c: str) -> Node | None:
         # \set Staff.prop = value | \override Grob.prop = value | \override Grob #'prop = value | \revert Grob.prop
         if c in ('omit', 'hide'):
             self.expect('word')
             while self.at('sym', '.'):
                 self.next()
                 self.expect('word')
-            return
+            return None
         if self.at('cmd', '\\once'):
             self.next()
-        self.expect('word')
+        prop = self.expect('word').val
         while self.at('sym', '.') or self.at('scheme'):
             if self.at('scheme'):
                 self.next()
             else:
                 self.next()
-                self.expect('word')
+                prop = self.expect('word').val
         if c in ('unset', 'revert'):
-            return
+            return None
         self.expect('sym', '=')
         v = self.next()
+        if c == 'set' and prop in ('measureLength', 'measurePosition'):
+            # a shorter measure or an upbeat written with the Timing properties instead of \partial
+            m = re.fullmatch(r'#\(ly:make-moment\s+(-?\d+)(?:\s*/\s*(\d+)|\s+(\d+))?\s*\)', v.val.strip())
+            if not m:
+                raise LyError(f'\\set {prop} = {v.val} is not supported ({v.pos})')
+            return Node('timing', (prop, F(int(m.group(1)), int(m.group(2) or m.group(3) or 1))))
         if v.kind == 'cmd' and v.val == '\\markup':
             self.skip_markup()
         elif v.kind == 'cmd':
@@ -846,6 +877,7 @@ class Parser:
         elif v.kind == 'sym' and v.val == '{':
             self.i -= 1
             self.skip_block()
+        return None
 
 
 # ---------------------------------------------------------------- relative pitches
@@ -956,6 +988,7 @@ class Cursor:
     tuplet: tuple[int, int] | None = None
     tuplet_group: int | None = None
     last_chord: list | None = None
+    mlen: F | None = None  # \set Timing.measureLength in effect (None: from the time signature)
 
 
 class Evaluator:
@@ -967,6 +1000,10 @@ class Evaluator:
         self.times: list[tuple[F, int, int]] = []
         self.clefs: list[tuple[int, F, str]] = []
         self.partial: F | None = None
+        self.mid_partials: dict[F, F] = {}  # a shorter measure starts here (before and after a repeat sign)
+        self.measure_lengths: dict[F, F] = {}  # \set Timing.measureLength: the length of the measures from here on
+        self.measure_starts: set[F] = set()  # \set Timing.measurePosition = 0: a measure starts here
+        self.ottavas: list[tuple[int, F, int]] = []  # (staff, time, octaves): notes printed octaves lower (8va)
         self.bars: list[tuple[F, str]] = []
         self.repeat_starts: set[F] = set()
         self.repeat_ends: set[F] = set()
@@ -1018,25 +1055,31 @@ class Evaluator:
             for idx, it in enumerate(items):
                 c2 = Cursor(start, cur.staff, cur.voice if (not voices and idx == 0 and False) else
                             self.new_voice(cur.voice), cur.factor, cur.grace, cur.tuplet, cur.tuplet_group,
-                            cur.last_chord)
+                            cur.last_chord, cur.mlen)
                 self.eval(it, c2)
                 end = max(end, c2.time)
+                mlen = c2.mlen
                 if c2.staff != cur.staff and len(items) == 1:
                     cur.staff = c2.staff
             cur.time = end
+            if items:
+                cur.mlen = mlen  # the measure length is the same for all staves (Timing)
         elif k == 'context':
             ctype, name, music = node.args
             if ctype in SKIP_CONTEXTS:
                 return
             if ctype == 'Staff':
-                c2 = Cursor(cur.time, self.staves[name], self.new_voice(f'S{self.staves[name]}'), cur.factor)
+                c2 = Cursor(cur.time, self.staves[name], self.new_voice(f'S{self.staves[name]}'), cur.factor,
+                            mlen=cur.mlen)
                 self.eval(music, c2)
                 cur.time = max(cur.time, c2.time)
+                cur.mlen = c2.mlen
             elif ctype == 'Voice':
                 c2 = Cursor(cur.time, cur.staff, self.new_voice(name or 'V'), cur.factor, cur.grace, cur.tuplet,
-                            cur.tuplet_group, cur.last_chord)
+                            cur.tuplet_group, cur.last_chord, cur.mlen)
                 self.eval(music, c2)
                 cur.time = max(cur.time, c2.time)
+                cur.mlen = c2.mlen
             elif ctype in ('PianoStaff', 'GrandStaff', 'StaffGroup', 'Score', 'ChoirStaff'):
                 self.eval(music, cur)
             else:
@@ -1053,8 +1096,12 @@ class Evaluator:
                 if not cur.last_chord:
                     raise LyError('q without a previous chord')
                 notes = [(p, Post(tie=post.tie)) for p in cur.last_chord]
+                if post.fingers and len(post.fingers) <= len(notes):  # q-1: a finger for the repeated chord
+                    post = Post([], post.tie, post.below, list(post.fingers))
             length = d.length * cur.factor
             self.chord_id += 1
+            if k != 'note' and post.chord_fingers:
+                notes = self.place_chord_fingers(notes, post.chord_fingers, post.below, cur.staff)
             notes = self.fix_chord_fingers(notes, cur.staff)
             for p, np in notes:
                 self.notes.append(OutNote(cur.staff, cur.voice, cur.time, F(0) if cur.grace else length, p,
@@ -1095,24 +1142,55 @@ class Evaluator:
             if not alts:
                 self.repeat_ends.add(cur.time)
                 return
+            start_len = cur.mlen
             for idx, alt in enumerate(alts):
                 s = cur.time
+                if idx and cur.mlen != start_len:
+                    # every ending starts with the measure length the first one had (editors shorten the last measure
+                    # of the first ending and do not always set it back for the next one)
+                    if start_len is None:
+                        tsig = [(tt, a, b) for tt, a, b in self.times if tt <= s]
+                        self.measure_lengths[s] = F(tsig[-1][1], tsig[-1][2]) if tsig else F(1)
+                    else:
+                        self.measure_lengths[s] = start_len
+                    cur.mlen = start_len
                 self.eval(alt, cur)
                 last = idx == len(alts) - 1
                 self.endings.append((idx + 1, s, cur.time, last))
                 if not last:
                     self.repeat_ends.add(cur.time)
         elif k == 'partial':
-            if cur.time != 0:
-                raise LyError('\\partial in the middle of the piece is not supported')
-            self.partial = node.args[0].length
+            length = node.args[0].length
+            if cur.time == 0:
+                self.partial = length
+            elif self.mid_partials.setdefault(cur.time, length) != length:
+                raise LyError('two different \\partial at the same time')
         elif k == 'key':
             step, alter, mode = node.args
             self.keys.append((cur.time, fifths_of(step, alter, mode), mode))
         elif k == 'time':
             self.times.append((cur.time, node.args[0], node.args[1]))
+            cur.mlen = None
+        elif k == 'timing':
+            prop, value = node.args
+            if prop == 'measureLength':  # set twice at the same time (end of a repeat, next upbeat): the last counts
+                if value <= 0:
+                    raise LyError(f'measureLength {value} at {cur.time}')
+                self.measure_lengths[cur.time] = value
+                cur.mlen = value
+            elif value < 0:  # an upbeat: the measure has -value left
+                if cur.time == 0:
+                    self.partial = -value
+                elif self.mid_partials.setdefault(cur.time, -value) != -value:
+                    raise LyError('two different upbeats at the same time')
+            elif value == 0:
+                self.measure_starts.add(cur.time)
+            else:
+                raise LyError('\\set Timing.measurePosition to a positive moment is not supported')
         elif k == 'clef':
             self.clefs.append((cur.staff, cur.time, node.args[0]))
+        elif k == 'ottava':
+            self.ottavas.append((cur.staff, cur.time, node.args[0]))
         elif k == 'bar':
             self.bars.append((cur.time, node.args[0]))
         elif k == 'change':
@@ -1154,7 +1232,33 @@ def _fix_chord_fingers(self, notes, staff: int):
     return out
 
 
+def _place_chord_fingers(self, notes, fingers: list[int], below: bool, staff: int):
+    """
+    Fingers written after a chord, not after its notes. One finger: the thumb and the fifth finger belong to the
+    outer notes (the thumb is the lowest note in the right hand and the highest in the left), another finger to the
+    top note, or to the bottom one when written below. Several: from the bottom up (from the top down when below).
+    """
+    order = sorted(range(len(notes)), key=lambda j: notes[j][0].midi())
+    rh = staff == 1
+    if len(fingers) == 1:
+        f = fingers[0]
+        if f == 1:
+            target = [order[0] if rh else order[-1]]
+        elif f == 5:
+            target = [order[-1] if rh else order[0]]
+        else:
+            target = [order[0] if below else order[-1]]
+    else:
+        target = order[::-1][:len(fingers)] if below else order[:len(fingers)]
+    out = [(p, Post(list(np.fingers), np.tie, np.below)) for p, np in notes]
+    for j, f in zip(target, fingers):
+        if not out[j][1].fingers:
+            out[j][1].fingers.append(f)
+    return out
+
+
 Evaluator.fix_chord_fingers = _fix_chord_fingers
+Evaluator.place_chord_fingers = _place_chord_fingers
 Evaluator.fixed_chords = 0
 
 
@@ -1214,7 +1318,7 @@ class Writer:
 
     def measures(self) -> list[tuple[F, F, int, int]]:
         ev = self.ev
-        times = sorted({(t, n, d) for t, n, d in ev.times})
+        times = sorted(dict.fromkeys(ev.times), key=lambda x: x[0])  # the later of two at the same time counts
         if not times or times[0][0] != 0:
             times.insert(0, (F(0), 4, 4))
         end = ev.end
@@ -1223,15 +1327,35 @@ class Writer:
         ti = 0
         num, den = times[0][1], times[0][2]
         first = True
+        lengths = sorted(ev.measure_lengths.items())
         while t < end:
             while ti + 1 < len(times) and times[ti + 1][0] <= t:
                 ti += 1
                 num, den = times[ti][1], times[ti][2]
             length = F(num, den)
+            # \set Timing.measureLength after the last time signature (at the same time: after it)
+            set_len = [(tl, ln) for tl, ln in lengths if times[ti][0] <= tl <= t]
+            if set_len:
+                length = set_len[-1][1]
             if first and ev.partial:
                 length = ev.partial
+            elif t in ev.mid_partials:
+                length = ev.mid_partials[t]
             first = False
             nxt = t + length
+            # a measure length set inside this measure: the barline comes when the measure reaches it, or right
+            # there if the measure is already that long (a short measure before an upbeat)
+            for tl, ln in lengths:
+                if t < tl < nxt:
+                    nxt = t + ln if t + ln > tl else tl
+                    break
+            if any(t < pt < nxt for pt in ev.mid_partials):
+                raise LyError('\\partial inside a measure is not supported')
+            # \set Timing.measurePosition = 0: a new measure starts there
+            for ts in sorted(ev.measure_starts):
+                if t < ts < nxt:
+                    nxt = ts
+                    break
             # a time signature change inside this measure ends it there
             for tt, n, d in times:
                 if t < tt < nxt:
@@ -1270,8 +1394,9 @@ class Writer:
                 vkeys.append(k)
         vnum = {k: str(i + 1) for i, k in enumerate(sorted(vkeys, key=lambda k: (k[1], vkeys.index(k))))}
 
-        keys = sorted({(t, f, m) for t, f, m in ev.keys})
-        clefs = sorted(set(ev.clefs), key=lambda c: (c[1], c[0]))
+        keys = sorted(dict.fromkeys(ev.keys), key=lambda k: k[0])
+        # in the order of the source (a stable sort): of two clefs at the same moment the later one counts
+        clefs = sorted(dict.fromkeys(ev.clefs), key=lambda c: (c[1], c[0]))
         parts: list[str] = []
         pending_ties: dict[tuple[str, int, int], bool] = {}
         carry: dict[tuple[str, int], list[OutNote]] = {}
@@ -1282,11 +1407,29 @@ class Writer:
             first = [c for c in clefs if c[0] == st and c[1] == 0]
             if first:
                 clef_now[st] = first[-1][2]
+        # 8va / 8vb lines: (time, direction) per staff; the pitches stay the sounding ones
+        shifts: dict[int, list[tuple[F, str]]] = {1: [], 2: []}
+        for st in (1, 2):
+            now = 0
+            for _, t0, n in sorted((o for o in ev.ottavas if o[0] == st), key=lambda o: o[1]):
+                if n == now:
+                    continue
+                if now:
+                    shifts[st].append((t0, self.shift_xml(st, now, stop=True)))
+                if n:
+                    shifts[st].append((t0, self.shift_xml(st, n)))
+                now = n
+            if now:
+                shifts[st].append((ev.end, self.shift_xml(st, now, stop=True)))
+        # an upbeat: \partial, or a first measure shortened with \set Timing.measureLength
+        pickup = ev.partial is not None or (len(meas) > 1 and meas[0][1] - meas[0][0] < F(meas[0][2], meas[0][3]))
         for mi, (ms, me, num, den) in enumerate(meas):
             mlen = me - ms
-            implicit = mi == 0 and ev.partial is not None
-            number = 0 if implicit else (mi if ev.partial is not None else mi + 1)
-            implicit_attr = ' implicit="yes"' if implicit else ''
+            implicit = mi == 0 and pickup
+            number = 0 if implicit else (mi if pickup else mi + 1)
+            # a shorter measure in the middle (before and after a repeat sign) keeps its length in the app only
+            # when marked implicit
+            implicit_attr = ' implicit="yes"' if implicit or (0 < mi < len(meas) - 1 and mlen < F(num, den)) else ''
             x = [f'<measure number="{number}"{implicit_attr}>']
             # left barline: repeat start, ending start
             left = []
@@ -1332,9 +1475,11 @@ class Writer:
                     items += [n for n in ev.notes if (n.voice, n.staff) == vk and ms <= n.onset < me]
                     if items:
                         streams.append((vk, items))
+                shift_here = [sh for sh in shifts[st] if ms <= sh[0] < me or (mi == len(meas) - 1 and sh[0] == me)]
                 if not streams:
                     if not first_part:
                         x.append(f'<backup><duration>{dur_div(mlen)}</duration></backup>')
+                    x.extend(xml for _, xml in shift_here)
                     x.extend(self.rests(mlen, '1' if st == 1 else '5', st, dur_div))
                     first_part = False
                     continue
@@ -1344,7 +1489,7 @@ class Writer:
                     first_part = False
                     clef_changes = [c for c in clefs if c[0] == st and ms <= c[1] < me and not (c[1] == 0)]
                     x.extend(self.voice_xml(vk, vnum[vk], items, ms, me, num, den, si == 0, clef_changes,
-                                            pending_ties, carry, dur_div))
+                                            pending_ties, carry, dur_div, shift_here if si == 0 else []))
             # right barline
             right = []
             for no, s, e, lastend in ev.endings:
@@ -1384,6 +1529,18 @@ class Writer:
                 '<part id="P1">')
         return head + '\n'.join(parts) + '</part></score-partwise>\n'
 
+    @staticmethod
+    def shift_xml(st: int, octaves: int, stop: bool = False) -> str:
+        size = {1: 8, 2: 15, 3: 22}.get(abs(octaves))
+        if size is None:
+            raise LyError(f'\\ottava #{octaves} is not supported')
+        if stop:
+            return (f'<direction><direction-type><octave-shift type="stop" size="{size}"/></direction-type>'
+                    f'<staff>{st}</staff></direction>')
+        kind, place = ('down', 'above') if octaves > 0 else ('up', 'below')
+        return (f'<direction placement="{place}"><direction-type><octave-shift type="{kind}" size="{size}"/>'
+                f'</direction-type><staff>{st}</staff></direction>')
+
     def clef_xml(self, st: int, name: str) -> str:
         if name not in CLEFS:
             raise LyError(f'clef {name} is not supported')
@@ -1413,8 +1570,10 @@ class Writer:
         return [f'<forward><duration>{dur_div(length)}</duration><voice>{voice}</voice><staff>{staff}</staff>'
                 f'</forward>']
 
-    def voice_xml(self, vk, vno, items, ms, me, num, den, primary, clef_changes, pending_ties, carry, dur_div):
+    def voice_xml(self, vk, vno, items, ms, me, num, den, primary, clef_changes, pending_ties, carry, dur_div,
+                  shifts=()):
         staff = vk[1]
+        shifts = list(shifts)
         out = []
         # group into events: (onset, grace, chord id) -> notes
         events: dict[tuple, list[OutNote]] = {}
@@ -1438,6 +1597,8 @@ class Writer:
                 t = n0.onset
             while clefs and clefs[0][1] <= t:
                 out.append('<attributes>' + self.clef_xml(staff, clefs.pop(0)[2]) + '</attributes>')
+            while shifts and shifts[0][0] <= t:
+                out.append(shifts.pop(0)[1])
             length = n0.dur
             split = None
             if not n0.grace and n0.onset + length > me:
@@ -1514,6 +1675,7 @@ class Writer:
                     carry.setdefault(vk, []).append(cont)
         if t < me:
             out.extend(self.gap(me - t, vno, staff, primary, dur_div))
+        out.extend(xml for _, xml in shifts)  # a line that ends after the last note of the measure
         return out
 
     def beams(self, groups: list[list[OutNote]], ms: F, num: int, den: int) -> dict[int, list[tuple[int, str]]]:
@@ -1570,8 +1732,10 @@ class Writer:
         return out
 
 
-def convert(src: str, title: str, composer: str, rights: str, source: str, tempo: float | None) -> str:
-    p = Parser(src)
+def convert(src: str, title: str, composer: str, rights, source: str, tempo: float | None,
+            select: str | None = None) -> str:
+    """`rights` is the text, or a function of the evaluated music (e.g. to name the fixes it made)."""
+    p = Parser(src, select)
     music = p.parse_file()
     music, _ = resolve(music, None)
     ev = Evaluator()
@@ -1580,7 +1744,7 @@ def convert(src: str, title: str, composer: str, rights: str, source: str, tempo
         raise LyError('no notes')
     if ev.fixed_chords:
         print(f'  fingers of {ev.fixed_chords} chord(s) were in an order no hand can play; reversed', file=sys.stderr)
-    w = Writer(ev, title, composer, rights, source, tempo or p.midi_tempo)
+    w = Writer(ev, title, composer, rights(ev) if callable(rights) else rights, source, tempo or p.midi_tempo)
     return w.write()
 
 
@@ -1593,10 +1757,12 @@ def main():
     ap.add_argument('--rights', default='')
     ap.add_argument('--source', default='')
     ap.add_argument('--tempo', type=float, default=None)
+    ap.add_argument('--score', default=None,
+                    help='take the printed scores whose text contains this (e.g. Primo), one after another')
     a = ap.parse_args()
     src = open(a.input, encoding='utf-8').read()
     try:
-        xml = convert(src, a.title, a.composer, a.rights, a.source, a.tempo)
+        xml = convert(src, a.title, a.composer, a.rights, a.source, a.tempo, a.score)
     except LyError as e:
         print(f'{a.input}: {e}', file=sys.stderr)
         sys.exit(1)

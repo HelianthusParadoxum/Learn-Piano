@@ -97,6 +97,8 @@ export interface TempoPoint {
 export interface Score {
   title: string;
   composer: string;
+  /** the file's copyright / license notice (<rights>), shown with the piece */
+  rights?: string;
   measures: MeasureInfo[];
   notes: NoteEvent[];
   staves: StaffInfo[];

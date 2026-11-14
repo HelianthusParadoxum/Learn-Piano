@@ -4,8 +4,8 @@ import { computeFingering } from '../web/src/lib/fingering';
 import { loadExample } from './helpers';
 
 /**
- * The étude library (public-domain editions with the editor's fingering, see scripts/mutopia-etudes.py) is also a
- * benchmark of the automatic fingering: how often it picks the editor's finger when it does not see it.
+ * The étude library (editions with the editor's fingering, see scripts/mutopia-etudes.py) is also a benchmark of
+ * the automatic fingering: how often it picks the editor's finger when it does not see it.
  */
 const pieces = etudes.collections.flatMap((c) => c.items.map((it) => ({ collection: c.id, file: it.file })));
 
@@ -25,9 +25,10 @@ describe('étude library', () => {
         else broken.push(`${file} m${s.measures[n.measureIndex].number}`);
       }
     }
-    // left out: a misprint (both notes of a third with the same finger), a finger printed on the second voice of
-    // a unison, a chord whose notes are in different voices
-    expect(kept / printed).toBeGreaterThanOrEqual(0.99);
+    // left out: misprints (both notes of an interval with the same finger; a chord note an octave off, so that the
+    // fifth finger is on its upper note), a finger printed on the second voice of a unison, a chord whose notes are
+    // in different voices
+    expect(kept / printed).toBeGreaterThanOrEqual(0.995);
     expect(broken.length).toBeLessThanOrEqual(15);
   });
 
@@ -41,10 +42,22 @@ describe('étude library', () => {
       v[0] += marked.filter((n) => n.finger === n.scoreFinger).length;
       v[1] += marked.length;
     }
-    const all = Object.values(score).reduce((a, [ok, n]) => [a[0] + ok, a[1] + n], [0, 0]);
-    // 62.9 % (Burgmüller 65.3 %, Czerny 59.5 %) before the weights were checked against this library; now 65.1 %.
-    // Editors' fingerings are not the only good ones, and these are studies that train particular moves
-    expect(all[0] / all[1]).toBeGreaterThanOrEqual(0.645);
-    for (const [ok, n] of Object.values(score)) expect(ok / n).toBeGreaterThanOrEqual(0.61);
+    const sum = (ids: string[]) => ids.map((id) => score[id]).reduce((a, [ok, n]) => [a[0] + ok, a[1] + n], [0, 0]);
+    // Burgmüller and Czerny: 62.9 % (65.3 %, 59.5 %) before the weights were checked against them, now 65.3 %
+    // (67.6 %, 62.1 %). Diabelli and Schumann came later and were not used to choose the weights: 77.3 % and 77.4 %
+    // (five-finger positions), 60.7 %. Editors' fingerings are not the only good ones, and these are studies that
+    // train particular moves
+    const tuned = sum(['burgmuller-100', 'czerny-821']);
+    expect(tuned[0] / tuned[1]).toBeGreaterThanOrEqual(0.65);
+    const all = sum(Object.keys(score));
+    expect(all[0] / all[1]).toBeGreaterThanOrEqual(0.725);
+    const floor: Record<string, number> = {
+      'burgmuller-100': 0.67,
+      'czerny-821': 0.615,
+      'diabelli-149': 0.77,
+      'diabelli-163': 0.77,
+      'schumann-68': 0.6,
+    };
+    for (const [id, [ok, n]] of Object.entries(score)) expect(ok / n, id).toBeGreaterThanOrEqual(floor[id] ?? 0.6);
   });
 });

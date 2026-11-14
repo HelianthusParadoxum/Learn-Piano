@@ -102,8 +102,11 @@ export function PiecePage({ route }: { route: Route }) {
     .filter((h) => countOf(h) > 0)
     .map((h) => `${h === 'R' ? 'правая' : 'левая'}: ${countOf(h)} ${plural(countOf(h), 'паттерн', 'паттерна', 'паттернов')}`)
     .join(' · ');
-  const tab = route.tab ?? 'guide';
-  const step = Math.min(Math.max(1, route.step ?? 1), Math.max(1, steps.length));
+  // a piece opens on the whole piece; the guide tab goes back to the step opened last
+  const tab = route.tab ?? 'score';
+  const clampStep = (s: number) => Math.min(Math.max(1, s), Math.max(1, steps.length));
+  const step = clampStep(route.step ?? 1);
+  const guideStep = tab === 'guide' ? step : clampStep((rec.lastBlock ?? 0) + 1);
   const firstMeasure = score.measures[0];
   const toggleLearned = (stepIndex: number) => {
     const k = stepKey(score, guide.blocks, steps[stepIndex]);
@@ -185,6 +188,7 @@ export function PiecePage({ route }: { route: Route }) {
               {patternChip} · {steps.length} {plural(steps.length, 'шаг', 'шага', 'шагов')}
             </span>
           </div>
+          {score.rights && <div className="piece-rights">{score.rights}</div>}
         </div>
         <div className="piece-header-side">
           <div className="overall-progress" title="Выученные шаги">
@@ -211,17 +215,17 @@ export function PiecePage({ route }: { route: Route }) {
       <div className="tabs" role="tablist">
         <button
           role="tab"
-          className={tab === 'guide' ? 'active' : ''}
-          onClick={() => navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step })}
-        >
-          Гайд по паттернам
-        </button>
-        <button
-          role="tab"
           className={tab === 'score' ? 'active' : ''}
           onClick={() => navigate({ page: 'piece', pieceId: rec.id, tab: 'score' })}
         >
           Вся пьеса
+        </button>
+        <button
+          role="tab"
+          className={tab === 'guide' ? 'active' : ''}
+          onClick={() => navigate({ page: 'piece', pieceId: rec.id, tab: 'guide', step: guideStep })}
+        >
+          Гайд по паттернам
         </button>
         {(rec.pdf || rec.pages?.length) && (
           <button
