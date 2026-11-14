@@ -1,0 +1,244 @@
+{
+  "collections": [
+    {
+      "id": "burgmuller-100",
+      "title": "25 лёгких этюдов, соч. 100",
+      "composer": "И. Ф. Ф. Бургмюллер",
+      "edition": "Collection Litolff, 19th Century",
+      "typeset": "Bas Wassink",
+      "items": [
+        {
+          "file": "burgmuller-100-01.musicxml",
+          "number": 1,
+          "title": "Откровенность",
+          "original": "La candeur"
+        },
+        {
+          "file": "burgmuller-100-02.musicxml",
+          "number": 2,
+          "title": "Арабеска",
+          "original": "Arabesque"
+        },
+        {
+          "file": "burgmuller-100-03.musicxml",
+          "number": 3,
+          "title": "Пастораль",
+          "original": "Pastorale"
+        },
+        {
+          "file": "burgmuller-100-04.musicxml",
+          "number": 4,
+          "title": "Маленькое собрание",
+          "original": "Petite réunion"
+        },
+        {
+          "file": "burgmuller-100-05.musicxml",
+          "number": 5,
+          "title": "Невинность",
+          "original": "Innocence"
+        },
+        {
+          "file": "burgmuller-100-06.musicxml",
+          "number": 6,
+          "title": "Успех",
+          "original": "Progrès"
+        },
+        {
+          "file": "burgmuller-100-07.musicxml",
+          "number": 7,
+          "title": "Чистый ручеёк",
+          "original": "Le courant limpide"
+        },
+        {
+          "file": "burgmuller-100-08.musicxml",
+          "number": 8,
+          "title": "Грациозная",
+          "original": "La gracieuse"
+        },
+        {
+          "file": "burgmuller-100-09.musicxml",
+          "number": 9,
+          "title": "Охота",
+          "original": "La chasse"
+        },
+        {
+          "file": "burgmuller-100-10.musicxml",
+          "number": 10,
+          "title": "Нежный цветок",
+          "original": "Tendre fleur"
+        },
+        {
+          "file": "burgmuller-100-11.musicxml",
+          "number": 11,
+          "title": "Трясогузка",
+          "original": "La bergeronnette"
+        },
+        {
+          "file": "burgmuller-100-12.musicxml",
+          "number": 12,
+          "title": "Прощание",
+          "original": "Adieu"
+        },
+        {
+          "file": "burgmuller-100-13.musicxml",
+          "number": 13,
+          "title": "Утешение",
+          "original": "Consolation"
+        },
+        {
+          "file": "burgmuller-100-14.musicxml",
+          "number": 14,
+          "title": "Штирийский танец",
+          "original": "La styrienne"
+        },
+        {
+          "file": "burgmuller-100-15.musicxml",
+          "number": 15,
+          "title": "Баллада",
+          "original": "Ballade"
+        },
+        {
+          "file": "burgmuller-100-16.musicxml",
+          "number": 16,
+          "title": "Нежная жалоба",
+          "original": "Douce plainte"
+        },
+        {
+          "file": "burgmuller-100-17.musicxml",
+          "number": 17,
+          "title": "Болтунья",
+          "original": "La babillarde"
+        },
+        {
+          "file": "burgmuller-100-18.musicxml",
+          "number": 18,
+          "title": "Беспокойство",
+          "original": "Inquiétude"
+        }
+      ]
+    },
+    {
+      "id": "czerny-821",
+      "title": "160 восьмитактовых упражнений, соч. 821",
+      "composer": "К. Черни",
+      "edition": "IMLSP; Leipzig: Edition Peters, n.d.1888. Plate 6990-6993.; IMLSP; Leipzig: Edition Peters, n.d.[1888]. Plate 6990-6993.",
+      "typeset": "Manuel Castejon Limas",
+      "items": [
+        {
+          "file": "czerny-821-01.musicxml",
+          "number": 1,
+          "title": "Упражнение № 1",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-02.musicxml",
+          "number": 2,
+          "title": "Упражнение № 2",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-03.musicxml",
+          "number": 3,
+          "title": "Упражнение № 3",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-04.musicxml",
+          "number": 4,
+          "title": "Упражнение № 4",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-05.musicxml",
+          "number": 5,
+          "title": "Упражнение № 5",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-06.musicxml",
+          "number": 6,
+          "title": "Упражнение № 6",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-07.musicxml",
+          "number": 7,
+          "title": "Упражнение № 7",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-08.musicxml",
+          "number": 8,
+          "title": "Упражнение № 8",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-09.musicxml",
+          "number": 9,
+          "title": "Упражнение № 9",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-10.musicxml",
+          "number": 10,
+          "title": "Упражнение № 10",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-11.musicxml",
+          "number": 11,
+          "title": "Упражнение № 11",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-12.musicxml",
+          "number": 12,
+          "title": "Упражнение № 12",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-13.musicxml",
+          "number": 13,
+          "title": "Упражнение № 13",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-14.musicxml",
+          "number": 14,
+          "title": "Упражнение № 14",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-15.musicxml",
+          "number": 15,
+          "title": "Упражнение № 15",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-16.musicxml",
+          "number": 16,
+          "title": "Упражнение № 16",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-17.musicxml",
+          "number": 17,
+          "title": "Упражнение № 17",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-18.musicxml",
+          "number": 18,
+          "title": "Упражнение № 18",
+          "original": ""
+        },
+        {
+          "file": "czerny-821-19.musicxml",
+          "number": 19,
+          "title": "Упражнение № 19",
+          "original": ""
+        }
+      ]
+    }
+  ]
+}

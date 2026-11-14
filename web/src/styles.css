@@ -570,6 +570,59 @@ button {
 .example-card:hover {
   border-color: var(--primary);
 }
+.etude-collection {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+.etude-collection > summary {
+  cursor: pointer;
+  font-size: 15px;
+}
+.etude-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px;
+  margin: 12px 0 8px;
+}
+.etude-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  cursor: pointer;
+  font-size: 14px;
+}
+.etude-item:hover {
+  border-color: var(--primary);
+}
+.etude-no {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 38px;
+  white-space: nowrap;
+}
+.etude-names {
+  display: flex;
+  flex-direction: column;
+}
+.etude-title {
+  font-weight: 600;
+}
+.etude-original {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+.etude-credit {
+  margin-top: 4px;
+}
 .example-title {
   font-weight: 700;
 }

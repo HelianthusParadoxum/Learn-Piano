@@ -7,6 +7,7 @@ import { claudeOmrAvailable, recognizeWithClaude, type OmrProgress } from '../li
 import { IS_ARTIFACT } from '../lib/platform';
 import { deletePiece, listPieces, newPieceRecord, savePiece, storageIsPersistent, type PieceRecord } from '../lib/storage';
 import { plural } from '../lib/patternText';
+import etudes from '../examples/etudes.json';
 
 /** Example pieces are bundled as separate chunks (loaded only when opened). */
 const EXAMPLE_LOADERS = import.meta.glob('../examples/*.musicxml', { query: '?raw', import: 'default' }) as Record<
@@ -199,7 +200,7 @@ export function HomePage() {
     }
   }
 
-  async function openExample(ex: (typeof EXAMPLES)[number]) {
+  async function openExample(ex: { file: string }) {
     setError('');
     try {
       const existing = pieces?.find((p) => p.sourceType === 'example' && p.sourceName === ex.file);
@@ -388,6 +389,39 @@ export function HomePage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="section">
+        <h2>Этюды с аппликатурой издания</h2>
+        <p className="muted small">
+          Ноты и пальцы — из старых изданий, перешедших в общественное достояние. Пальцы, напечатанные в издании,
+          приложение соблюдает, а для остальных нот подбирает сам.
+        </p>
+        {etudes.collections.map((c) => (
+          <details key={c.id} className="etude-collection">
+            <summary>
+              <b>{c.composer}</b>. {c.title}
+              <span className="muted">
+                {' '}
+                · {c.items.length} {plural(c.items.length, 'пьеса', 'пьесы', 'пьес')}
+              </span>
+            </summary>
+            <div className="etude-list">
+              {c.items.map((it) => (
+                <button key={it.file} className="etude-item" onClick={() => void openExample(it)}>
+                  <span className="etude-no">№ {it.number}</span>
+                  <span className="etude-names">
+                    <span className="etude-title">{it.title.replace(/^Упражнение № \d+$/, 'Упражнение')}</span>
+                    {it.original && <span className="etude-original">{it.original}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="muted small etude-credit">
+              Издание: {c.edition}. Набор: {c.typeset}, Mutopia Project (mutopiaproject.org) — общественное достояние.
+            </div>
+          </details>
+        ))}
       </section>
     </div>
   );

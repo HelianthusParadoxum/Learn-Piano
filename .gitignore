@@ -6,3 +6,4 @@ data/
 .DS_Store
 web/public/pdfjs/
 dist-artifact/
+__pycache__/
