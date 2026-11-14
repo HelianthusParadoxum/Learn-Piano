@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, DEFAULT_THRESHOLD, type Hand } from '../web/src/lib/model';
 import { parseScore } from '../web/src/lib/musicxml';
 import { diffLines, structureSummary } from '../web/src/lib/patternText';
-import { analyzePatterns, bestMatch, buildSteps, FragmentCache, joinCompanions, matchWindows, stepOfBlock } from '../web/src/lib/patterns';
+import { analyzePatterns, bestMatch, buildSteps, equalNotePairs, FragmentCache, joinCompanions, matchWindows, stepOfBlock } from '../web/src/lib/patterns';
 import { measureBoundaries } from '../web/src/lib/segment';
 import { buildGuide } from '../web/src/lib/piece';
 import { loadExample, loadFile } from './helpers';
@@ -274,7 +274,9 @@ describe('a phrase repeated a step higher with a changed middle', () => {
 /** Own melodies in 4/4: a bar is "G5:2 A5:1 …" (a note and its length in eighths); the left hand holds C3 / G2. */
 const TYPES: Record<number, string> = { 1: 'eighth', 2: 'quarter', 4: 'half', 8: 'whole' };
 const xmlNote = (p: string, dur: number, staff = 1) =>
-  `<note><pitch><step>${p[0]}</step><octave>${p[1]}</octave></pitch><duration>${dur}</duration><voice>${staff}</voice><type>${TYPES[dur]}</type><staff>${staff}</staff></note>`;
+  p.startsWith('R')
+    ? `<note><rest/><duration>${dur}</duration><voice>${staff}</voice><type>${TYPES[dur]}</type><staff>${staff}</staff></note>`
+    : `<note><pitch><step>${p[0]}</step><octave>${p[1]}</octave></pitch><duration>${dur}</duration><voice>${staff}</voice><type>${TYPES[dur]}</type><staff>${staff}</staff></note>`;
 const xmlBar = (notes: string) =>
   notes
     .split(' ')
@@ -430,5 +432,73 @@ describe('the base of a pattern', () => {
       expect(step.part).toBe(Math.min(...f.blocks.map((k) => partOf(blocks[k].coreStart!))));
       for (const [i, st] of steps.entries()) if (st.kind === 'variation' && blocks[st.block].family === f.index) expect(i).toBeGreaterThan(at);
     }
+  });
+});
+
+describe('a variation with whole measures inserted or left out', () => {
+  // own melody, 4/4: phrase X, a phrase Y, X again with a measure inserted or left out, a phrase Z, X
+  const X = ['C5:2 E5:2 G5:2 E5:2', 'F5:2 D5:2 B4:4', 'C5:2 E5:2 A5:2 G5:2', 'C5:8'];
+  const Y = ['E5:2 D5:2 C5:2 D5:2', 'E5:2 E5:2 E5:4', 'D5:2 D5:2 E5:2 D5:2', 'G4:8'];
+  const Z = ['G4:2 A4:2 B4:2 G4:2', 'A4:4 F4:4', 'E4:2 F4:2 G4:2 E4:2', 'D4:8'];
+  const analyse = (bars: string[]) => {
+    const s = scoreOf(bars);
+    const { blocks, families } = analyzePatterns(s);
+    const R = blocks.filter((b) => b.hand === 'R');
+    return { s, blocks, families, R, spans: R.map((b) => [b.label, (b.coreStart ?? b.startMeasure) + 1, b.endMeasure + 1]) };
+  };
+
+  it('notes added or removed inside the measures make a variation', () => {
+    const added = ['C5:2 E5:1 F5:1 G5:2 E5:2', 'F5:2 D5:2 B4:2 A4:1 B4:1', 'C5:2 E5:2 A5:1 B5:1 G5:2', 'C5:8'];
+    const removed = ['C5:4 G5:2 E5:2', 'F5:2 D5:2 B4:4', 'C5:2 R:2 A5:2 G5:2', 'C5:8'];
+    for (const v of [added, removed]) expect(analyse([...X, ...Y, ...v, ...Z, ...X]).spans.map((x) => x[0])).toEqual(['A', 'B', 'A′', 'C', 'A']);
+  });
+
+  it('a measure inserted: the whole phrase is a variation, the inserted measure is new', () => {
+    const inserted = [X[0], X[1], 'E5:2 C5:2 A4:4', X[2], X[3]];
+    const { s, blocks, families, R, spans } = analyse([...X, ...Y, ...inserted, ...Z, ...X]);
+    expect(spans).toEqual([
+      ['A', 1, 4],
+      ['B', 5, 8],
+      ['A′', 9, 13],
+      ['C', 14, 17],
+      ['A', 18, 21],
+    ]);
+    expect(R[2].diff!.measures.map((m) => m.base)).toEqual([0, 1, null, 2, 3]);
+    expect(diffLines(s, blocks, families, R[2])).toEqual(['Такт 11 (3-й такт паттерна): добавлен целиком, в A такого такта нет — ми, до, ля.']);
+    // the fingers of the base reach the measures after the inserted one
+    const pairs = equalNotePairs(s, blocks, families);
+    expect(pairs.some((p) => s.notes[p.from].measureIndex === 3 && s.notes[p.to].measureIndex === 12)).toBe(true);
+  });
+
+  it('a measure left out: the shorter phrase is a variation, the measure is reported missing', () => {
+    const shorter = [X[0], X[1], X[3]];
+    const { s, blocks, families, R, spans } = analyse([...X, ...Y, ...shorter, ...Z, ...X]);
+    expect(spans).toEqual([
+      ['A', 1, 4],
+      ['B', 5, 8],
+      ['A′', 9, 11],
+      ['C', 12, 15],
+      ['A', 16, 19],
+    ]);
+    expect(R[2].diff!.dropped!.map((d) => d.offset)).toEqual([2]);
+    expect(diffLines(s, blocks, families, R[2])).toEqual(['После такта 10 пропущен 3-й такт A (такт 3): до, ми, ля, соль.']);
+  });
+
+  it('an appearance with an extra measure can be the variation of a shorter base', () => {
+    const inserted = [X[0], X[1], 'E5:2 C5:2 A4:4', X[2], X[3]];
+    const { spans, R, families } = analyse([...inserted, ...Y, ...X, ...Z, ...X]);
+    expect(spans.map((x) => x[0])).toEqual(['A′', 'B', 'A', 'C', 'A']);
+    expect(families.find((f) => f.letter === 'A')!.base).toBe(R[2].index);
+  });
+
+  it('a neighbouring measure is not taken for an inserted one', () => {
+    // with X and its variation of the same length, X + the first measure of Z must not become a five-measure phrase
+    const variant = [...X.slice(0, 3), 'D5:8'];
+    expect(analyse([...X, ...Y, ...variant, ...Z]).spans).toEqual([
+      ['A', 1, 4],
+      ['B', 5, 8],
+      ['A′', 9, 12],
+      ['C', 13, 16],
+    ]);
   });
 });

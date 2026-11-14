@@ -11,6 +11,7 @@ import { EPS, type Block, type GuideStep, type Hand, type NoteEvent, type PieceS
 import {
   blockMeasures,
   changedMeasureCount,
+  lengthChangeText,
   diffLines,
   diffNoteCount,
   HAND_LOWER,
@@ -699,7 +700,7 @@ function StepView(props: Props & { stepIndex: number }) {
                 {changedMeasureCount(block)
                   ? ` · отличия в ${changedMeasureCount(block)} из ${block.endMeasure - (block.coreStart ?? block.startMeasure) + 1} ${plural(block.endMeasure - (block.coreStart ?? block.startMeasure) + 1, 'такта', 'тактов', 'тактов')}`
                   : ''}
-                .
+                {lengthChangeText(block)}.
               </p>
               <ul className="tips diff-list">
                 {diffText.length ? (

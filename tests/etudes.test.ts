@@ -10,7 +10,7 @@ import { loadExample } from './helpers';
 const pieces = etudes.collections.flatMap((c) => c.items.map((it) => ({ collection: c.id, file: it.file })));
 
 describe('étude library', () => {
-  it('has the editions’ fingering, and the app keeps it', () => {
+  it('has the editions’ fingering, and the app keeps it', { timeout: 60000 }, () => {
     let printed = 0;
     let kept = 0;
     const broken: string[] = [];

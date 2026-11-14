@@ -162,8 +162,13 @@ export interface BlockDiff {
   rhythm: number[];
   /** ids of base notes that have no counterpart in this block */
   baseUnmatched: number[];
-  /** per measure of the block (offset from its first measure) */
-  measures: { offset: number; changed: number; missing: number; rhythm: number }[];
+  /**
+   * per measure of the block (offset from its first measure); `base`: the offset of the measure of the base it
+   * corresponds to when the block inserts or leaves out measures (null: a measure the base does not have)
+   */
+  measures: { offset: number; changed: number; missing: number; rhythm: number; base?: number | null }[];
+  /** measures of the base this block leaves out: offset in the base and the ids of their notes */
+  dropped?: { offset: number; notes: number[] }[];
 }
 
 export interface PatternFamily {

@@ -138,32 +138,53 @@ export function diffLines(score: Score, blocks: Block[], families: PatternFamily
   const rhythm = new Set(b.diff.rhythm);
   const baseLost = new Set(b.diff.baseUnmatched);
   const span = b.endMeasure - bStart + 1;
+  // a transposed variation is compared with its base moved the same way
+  const move = isShifted(b) ? (n: NoteEvent) => shifted(score, n, b) : undefined;
+  const number = (k: number) => score.measures[k]?.number ?? String(k + 1);
+  // measures of the base the variation leaves out, after the measure that follows the one before them
+  const before = new Map<number, number>();
+  for (const m of b.diff.measures) if (typeof m.base === 'number') before.set(m.base, m.offset);
+  const out: [number, string][] = [];
+  for (const d of b.diff.dropped ?? []) {
+    const bm = baseStart + d.offset;
+    const there = notesIn(score, bm, hand, base);
+    const after = before.get(d.offset - 1);
+    out.push([
+      (after ?? -1) + 0.5,
+      `${after !== undefined ? `После такта ${number(bStart + after)}` : 'В начале'} пропущен ${d.offset + 1}-й такт ${letter} ` +
+        `(такт ${number(bm)})${there.length ? `: ${listNotes(there, false, move)}` : ''}.`,
+    ]);
+  }
   for (const m of b.diff.measures) {
     if (!m.changed && !m.missing && !m.rhythm) continue;
     const vm = bStart + m.offset;
-    const bm = baseStart + m.offset;
     const where =
       m.offset < 0
-        ? `Затакт (конец такта ${score.measures[vm]?.number ?? vm + 1})`
-        : `Такт ${score.measures[vm]?.number ?? vm + 1}${span > 1 ? ` (${m.offset + 1}-й такт паттерна)` : ''}`;
+        ? `Затакт (конец такта ${number(vm)})`
+        : `Такт ${number(vm)}${span > 1 ? ` (${m.offset + 1}-й такт паттерна)` : ''}`;
     const here = notesIn(score, vm, hand, b);
+    if (m.base === null) {
+      out.push([m.offset, `${where}: добавлен целиком, в ${letter} такого такта нет${here.length ? ` — ${listNotes(here, false)}` : ''}.`]);
+      continue;
+    }
+    const bm = baseStart + (m.base ?? m.offset);
     const there = notesIn(score, bm, hand, base);
     const handChanged = here.some((n) => changed.has(n.id)) || there.some((n) => baseLost.has(n.id));
     const handRhythm = here.some((n) => rhythm.has(n.id));
     if (!handChanged && !handRhythm) continue;
+    // the measure of the base, when the variation has measures inserted or left out
+    const at = m.base !== undefined && m.base !== m.offset ? ` (${m.base + 1}-й такт ${letter})` : '';
     if (!handChanged) {
-      lines.push(`${where}: те же ноты, но другой ритм (длительности).`);
+      out.push([m.offset, `${where}${at}: те же ноты, но другой ритм (длительности).`]);
       continue;
     }
-    // a transposed variation is compared with its base moved the same way
-    const move = isShifted(b) ? (n: NoteEvent) => shifted(score, n, b) : undefined;
     const inBase = move ? `в ${letter} со сдвигом` : `в ${letter}`;
     if (!here.length) {
-      lines.push(`${where}: здесь пауза (${inBase} — ${listNotes(there, false, move)}).`);
+      out.push([m.offset, `${where}${at}: здесь пауза (${inBase} — ${listNotes(there, false, move)}).`]);
       continue;
     }
     if (!there.length) {
-      lines.push(`${where}: добавились ноты ${listNotes(here, false)} (в ${letter} рука молчала).`);
+      out.push([m.offset, `${where}${at}: добавились ноты ${listNotes(here, false)} (в ${letter} рука молчала).`]);
       continue;
     }
     let a = listNotes(there, false, move);
@@ -172,19 +193,39 @@ export function diffLines(score: Score, blocks: Block[], families: PatternFamily
       a = listNotes(there, true, move);
       c = listNotes(here, true);
     }
-    lines.push(`${where}: ${inBase} — ${a}; здесь — ${c}.`);
+    out.push([m.offset, `${where}${at}: ${inBase} — ${a}; здесь — ${c}.`]);
   }
+  lines.push(...out.sort((x, y) => x[0] - y[0]).map(([, text]) => text));
   if (lines.length > 8) return [...lines.slice(0, 8), `…и ещё ${lines.length - 8} отличий — смотрите выделенные ноты.`];
   return lines;
 }
 
-/** Number of measures of the variation that contain differences. */
+/** Number of measures of the variation that contain differences (measures it inserts included). */
 export function changedMeasureCount(b: Block): number {
   return b.diff ? b.diff.measures.filter((m) => m.changed || m.missing || m.rhythm).length : 0;
 }
 
+/** Measures of the base the variation leaves out. */
+export function droppedMeasureCount(b: Block): number {
+  return b.diff?.dropped?.length ?? 0;
+}
+
+/** ", такт добавлен" / ", 2 такта пропущено" — measures inserted or left out, for the short descriptions. */
+export function lengthChangeText(b: Block): string {
+  const added = b.diff ? b.diff.measures.filter((m) => m.base === null).length : 0;
+  const dropped = droppedMeasureCount(b);
+  const part = (n: number, word: string) => (n === 1 ? `такт ${word}` : `${n} ${plural(n, 'такт', 'такта', 'тактов')} ${word === 'добавлен' ? 'добавлено' : 'пропущено'}`);
+  return [added ? part(added, 'добавлен') : '', dropped ? part(dropped, 'пропущен') : ''].filter(Boolean).map((t) => `, ${t}`).join('');
+}
+
+/**
+ * Differences to learn, in notes: added, removed, of another length — a note changed in pitch counts once (in a
+ * measure, the more of the notes added and removed) — and the notes of measures of the base left out.
+ */
 export function diffNoteCount(b: Block): number {
-  return b.diff ? b.diff.changed.length + b.diff.rhythm.length : 0;
+  if (!b.diff) return 0;
+  const inMeasures = b.diff.measures.reduce((a, m) => a + Math.max(m.changed, m.missing) + m.rhythm, 0);
+  return inMeasures + (b.diff.dropped ?? []).reduce((a, d) => a + d.notes.length, 0);
 }
 
 export interface Occurrence {
@@ -208,7 +249,7 @@ export function occurrences(score: Score, blocks: Block[], families: PatternFami
     const n = changedMeasureCount(b);
     return {
       block: b,
-      text: `${b.label}: ${where} — вариация, совпадает на ${Math.round(b.similarity * 100)}%${n ? `, отличия в ${n} ${plural(n, 'такте', 'тактах', 'тактах')}` : ''}${isShifted(b) ? ', сдвинута' : ''}`,
+      text: `${b.label}: ${where} — вариация, совпадает на ${Math.round(b.similarity * 100)}%${n ? `, отличия в ${n} ${plural(n, 'такте', 'тактах', 'тактах')}` : ''}${lengthChangeText(b)}${isShifted(b) ? ', сдвинута' : ''}`,
     };
   });
 }

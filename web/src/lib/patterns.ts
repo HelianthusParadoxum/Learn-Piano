@@ -9,7 +9,9 @@
  *  1. Similarity of two fragments of one hand (equal number of measures) is computed note by note:
  *     same position in the fragment (± 1/24 of a quarter), same pitch after the best transposition
  *     (chromatic, or along the scale for sequences). A note whose length differs counts ¾.
- *     Similarity = 2·matches / (notes in both fragments) (the Dice coefficient).
+ *     Similarity = 2·matches / (notes in both fragments) (the Dice coefficient). Notes added or removed inside the
+ *     measures only lower it. Fragments of different lengths — the same phrase with whole measures inserted or
+ *     left out — are compared measure by measure after aligning their measures (alignMatch).
  *  2. Fragments are one pattern when they are at least `threshold` similar (50 % by default, 20–90 %); a
  *     match from another note (transposed) needs at least 60 % and must cover every measure of the fragment.
  *     A threshold below 50 % only groups fragments: the piece is cut with 50 %.
@@ -56,6 +58,8 @@ export interface WEvent {
   dur: number;
   /** measure offset inside the fragment */
   off: number;
+  /** onset from the barline of its own measure, in 1/24 quarters (upbeat notes: from the fragment's first barline) */
+  mq: number;
 }
 
 export interface WindowMatch {
@@ -66,6 +70,13 @@ export interface WindowMatch {
   steps: number;
   /** matched notes: [index in A, index in B, quality 1 | 0.75] */
   pairs: [number, number, number][];
+  /**
+   * Fragments of different lengths (alignMatch): for each measure of B (index = offset + 1, the upbeat first) the
+   * offset of the measure of A it corresponds to, or null for a measure B inserts; and the measures of A that B
+   * leaves out.
+   */
+  map?: (number | null)[];
+  dropped?: number[];
 }
 
 /**
@@ -108,14 +119,16 @@ export class FragmentCache {
     for (let k = Math.max(0, i - 1); k < i + L && k < M; k++) {
       for (const n of this.byMeasure[k]) {
         if (n.onset < from - EPS || n.onset >= to - EPS) continue;
+        const q = Math.round((n.onset - bar) * Q);
         ev.push({
           id: n.id,
           hand: n.hand!,
-          q: Math.round((n.onset - bar) * Q),
+          q,
           midi: n.midi,
           dia: n.octave * 7 + Math.max(0, STEPS.indexOf(n.step)),
           dur: n.duration,
           off: k - i,
+          mq: k < i ? q : Math.round((n.onset - barlineAt(this.score, k)) * Q),
         });
       }
     }
@@ -261,11 +274,185 @@ export function bestMatch(A: WEvent[], B: WEvent[], threshold = 0, sameRhythmAtT
   return best;
 }
 
+/**
+ * How many whole measures a variation may insert or leave out, for fragments of these lengths (in measures):
+ * one in a phrase of three to five measures, two from six. Shorter fragments are compared only at equal length.
+ */
+export function allowedIndels(La: number, Lb: number): number {
+  const min = Math.min(La, Lb);
+  return min < 3 ? 0 : Math.max(1, Math.floor(min / 3));
+}
+
+/** Notes of two sets of events matched by their place inside the measure (`mq`) and pitch (see matchWindows). */
+function matchMeasures(A: WEvent[], ia: number[], B: WEvent[], ib: number[], shift: number, diatonic: boolean) {
+  const index = new Map<number, number[]>();
+  for (const k of ib) {
+    const key = keyOf(B[k].hand, B[k].mq);
+    const list = index.get(key);
+    if (list) list.push(k);
+    else index.set(key, [k]);
+  }
+  const used = new Set<number>();
+  let score = 0;
+  const pairs: [number, number, number][] = [];
+  for (const a of ia) {
+    const ea = A[a];
+    let found = -1;
+    for (const dq of [0, -1, 1]) {
+      for (const k of index.get(keyOf(ea.hand, ea.mq + dq)) ?? []) {
+        if (!used.has(k) && (diatonic ? B[k].dia === ea.dia + shift : B[k].midi === ea.midi + shift)) {
+          found = k;
+          break;
+        }
+      }
+      if (found >= 0) break;
+    }
+    if (found < 0) continue;
+    used.add(found);
+    const eb = B[found];
+    const quality = Math.abs(ea.dur - eb.dur) <= 0.25 * Math.max(ea.dur, eb.dur) + 1e-6 ? 1 : 0.75;
+    score += quality;
+    pairs.push([a, found, quality]);
+  }
+  return { score, pairs };
+}
+
+/**
+ * Match of two fragments of different lengths (`La`, `Lb` measures) that are the same music with whole measures
+ * inserted or left out — a phrase extended by a measure, a measure dropped. The measures are aligned in order
+ * (dynamic programming; the upbeats with each other), their notes compared by place in the measure and pitch,
+ * as matchWindows does; the similarity is the Dice coefficient over all notes. At most `allowedIndels` measures
+ * may be inserted or left out on either side. A shift (another note) counts only when clearly better and at least
+ * MIN_SHIFTED similar; `fixed` matches at a given shift (the block's own). With `inner`, the first and the last
+ * measures of both must correspond: a measure without a partner at the edge is a neighbouring phrase, not an
+ * inserted one (used when cutting the piece; an extension sits before the closing measure).
+ */
+export function alignMatch(
+  A: WEvent[],
+  La: number,
+  B: WEvent[],
+  Lb: number,
+  threshold = 0,
+  fixed?: { shift: number; diatonic: boolean },
+  inner = false,
+): WindowMatch {
+  const none: WindowMatch = { sim: 0, t: 0, steps: 0, pairs: [] };
+  const K = allowedIndels(La, Lb);
+  if (Math.abs(La - Lb) > K || !A.length || !B.length) return none;
+  const byMeasure = (E: WEvent[], L: number) => {
+    const out: number[][] = Array.from({ length: L + 1 }, () => []);
+    E.forEach((e, k) => {
+      if (e.off >= -1 && e.off < L) out[e.off + 1].push(k);
+    });
+    return out;
+  };
+  const Am = byMeasure(A, La);
+  const Bm = byMeasure(B, Lb);
+  const run = (shift: number, diatonic: boolean): WindowMatch => {
+    const w = new Map<number, ReturnType<typeof matchMeasures>>();
+    const weight = (a: number, b: number) => {
+      const key = a * 64 + b;
+      let v = w.get(key);
+      if (!v) w.set(key, (v = matchMeasures(A, Am[a], B, Bm[b], shift, diatonic)));
+      return v;
+    };
+    // best[a][b]: measures 1..a of A aligned with 1..b of B (index 0 is the upbeat, aligned with the upbeat)
+    const best = Array.from({ length: La + 1 }, () => new Array<number>(Lb + 1).fill(-Infinity));
+    const from = Array.from({ length: La + 1 }, () => new Array<number>(Lb + 1).fill(0));
+    best[0][0] = weight(0, 0).score;
+    for (let a = 0; a <= La; a++) {
+      for (let b = 0; b <= Lb; b++) {
+        if ((a === 0 && b === 0) || Math.abs(a - b) > K) continue;
+        let v = -Infinity;
+        let f = 0;
+        if (a > 0 && b > 0 && best[a - 1][b - 1] > -Infinity) {
+          v = best[a - 1][b - 1] + weight(a, b).score;
+          f = 1; // the measures correspond (preferred when equal)
+        }
+        if (a > 0 && best[a - 1][b] > v) {
+          v = best[a - 1][b];
+          f = 2; // B leaves out measure a of A
+        }
+        if (b > 0 && best[a][b - 1] > v) {
+          v = best[a][b - 1];
+          f = 3; // B inserts measure b
+        }
+        best[a][b] = v;
+        from[a][b] = f;
+      }
+    }
+    if (best[La][Lb] === -Infinity) return none;
+    const map: (number | null)[] = new Array(Lb + 1).fill(null);
+    map[0] = -1;
+    const dropped: number[] = [];
+    const pairs: [number, number, number][] = [...weight(0, 0).pairs];
+    let score = weight(0, 0).score;
+    for (let a = La, b = Lb; a > 0 || b > 0; ) {
+      const f = from[a][b];
+      if (f === 1) {
+        map[b] = a - 1;
+        pairs.push(...weight(a, b).pairs);
+        score += weight(a, b).score;
+        a--;
+        b--;
+      } else if (f === 2) {
+        dropped.push(a - 1);
+        a--;
+      } else {
+        b--;
+      }
+    }
+    if (dropped.length > K || map.filter((x) => x === null).length > K) return none;
+    if (inner && (map[1] === null || map[Lb] === null || dropped.includes(0) || dropped.includes(La - 1))) return none;
+    return {
+      sim: (2 * score) / (A.length + B.length),
+      t: diatonic ? 0 : shift,
+      steps: diatonic ? shift : 0,
+      pairs,
+      map,
+      dropped: dropped.reverse(),
+    };
+  };
+  if (fixed) return run(fixed.shift, fixed.diatonic);
+  let best = run(0, false);
+  if (best.sim > 0.999) return best;
+  // shifts: the most common pitch differences between notes at the same place of measures that may correspond
+  const minShifted = Math.max(threshold, MIN_SHIFTED);
+  for (const diatonic of [false, true]) {
+    const hist = new Map<number, number>();
+    for (let a = 1; a <= La; a++) {
+      for (let b = Math.max(1, a - K); b <= Math.min(Lb, a + K); b++) {
+        for (const x of Am[a]) {
+          for (const y of Bm[b]) {
+            if (A[x].hand !== B[y].hand || A[x].mq !== B[y].mq) continue;
+            const d = diatonic ? B[y].dia - A[x].dia : B[y].midi - A[x].midi;
+            if (d !== 0 && Math.abs(d) <= (diatonic ? 7 : 12)) hist.set(d, (hist.get(d) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    const minVotes = Math.max(3, 0.3 * Math.min(A.length, B.length));
+    const shifts = [...hist.entries()].filter(([, c]) => c >= minVotes).sort((x, y) => y[1] - x[1]).slice(0, 2);
+    for (const [d] of shifts) {
+      const m = run(d, diatonic);
+      if (m.sim >= best.sim + 0.1 && m.sim >= minShifted) best = m;
+    }
+  }
+  return best;
+}
+
+/** Match of two fragments of any lengths: note by note when equally long, measures aligned otherwise. */
+export function fragmentMatch(A: WEvent[], La: number, B: WEvent[], Lb: number, threshold = 0, sameRhythmAtThreshold = false): WindowMatch {
+  return La === Lb ? bestMatch(A, B, threshold, sameRhythmAtThreshold) : alignMatch(A, La, B, Lb, threshold);
+}
+
 const MIN_NOTES = 3;
 /** Boundary strength of a clear phrase edge (a long note or rest, an upbeat, a 2/4-bar position). */
 const PHRASE_EDGE = 2;
 /** Boundary strength that counts as a full phrase edge, like the start of the piece (stronger counts the same). */
 const FULL_EDGE = 3;
+/** Boundary strength of a phrase end anywhere (a long note or rest ends the measure), on the bar grid or not. */
+const PHRASE_END = 1.5;
 const LEN_COST = [0, 0.4, 0, 0.35, 0, 0.7, 0.3, 0.8, 0.1];
 
 interface Segmenter {
@@ -354,7 +541,7 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
   const maxSize = Math.round(HAND_TARGET * 2.2);
 
   // 1. repeating pairs of learnable size
-  type Pair = { i: number; j: number; L: number; m: WindowMatch; si: number; sj: number; value: number };
+  type Pair = { i: number; j: number; L: number; Lj: number; m: WindowMatch; si: number; sj: number; value: number };
   const pairs: Pair[] = [];
   for (let L = 1; L <= maxL; L++) {
     for (let i = first; i + L <= M; i++) {
@@ -376,7 +563,32 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
           Math.min(startStrength(i), startStrength(j), bounds[i + L - 1].strength, bounds[j + L - 1].strength) >= PHRASE_EDGE;
         const m = bestMatch(A, B, threshold, phrases);
         if (m.sim < threshold) continue;
-        pairs.push({ i, j, L, m, si, sj, value: 0 });
+        pairs.push({ i, j, L, Lj: L, m, si, sj, value: 0 });
+      }
+    }
+  }
+  // the same phrase with whole measures inserted or left out (a phrase extended by a measure, a measure
+  // dropped): only between whole phrases — a long note or rest before and at the end of both, where the
+  // measures line up. (The end of an extended phrase is off the 2- and 4-bar grid: a phrase end is enough.)
+  const phraseEdges = (i: number, L: number) => Math.min(startStrength(i), bounds[i + L - 1].strength) >= PHRASE_END;
+  for (let L = 3; L <= maxL; L++) {
+    for (let i = first; i + L <= M; i++) {
+      if (!seg.valid(i, L) || !phraseEdges(i, L)) continue;
+      const si = seg.size(i, L);
+      if (si < minSize || si > maxSize) continue;
+      const A = cache.events(i, L);
+      for (let Lj = Math.max(3, L - 2); Lj <= Math.min(maxL, L + 2); Lj++) {
+        if (Lj === L || Math.abs(Lj - L) > allowedIndels(L, Lj)) continue;
+        for (let j = i + L; j + Lj <= M; j++) {
+          if (!seg.valid(j, Lj) || !phraseEdges(j, Lj)) continue;
+          const sj = seg.size(j, Lj);
+          if (sj < minSize || sj > maxSize) continue;
+          const B = cache.events(j, Lj);
+          if ((2 * Math.min(A.length, B.length)) / (A.length + B.length) < threshold) continue;
+          const m = alignMatch(A, L, B, Lj, threshold, undefined, true);
+          if (m.sim < threshold) continue;
+          pairs.push({ i, j, L, Lj, m, si, sj, value: 0 });
+        }
       }
     }
   }
@@ -385,18 +597,18 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
   const support = new Map<string, number>();
   for (const p of pairs) {
     support.set(`${p.i}|${p.L}`, (support.get(`${p.i}|${p.L}`) ?? 0) + 1);
-    support.set(`${p.j}|${p.L}`, (support.get(`${p.j}|${p.L}`) ?? 0) + 1);
+    support.set(`${p.j}|${p.Lj}`, (support.get(`${p.j}|${p.Lj}`) ?? 0) + 1);
   }
   for (const p of pairs) {
-    const { i, j, L, m, si, sj } = p;
+    const { i, j, L, Lj, m, si, sj } = p;
     const fit = 1 - Math.min(1, Math.abs((si + sj) / 2 - HAND_TARGET) / HAND_TARGET);
-    const phrase = edge(startStrength(i)) + edge(startStrength(j)) + edge(bounds[i + L - 1].strength) + edge(bounds[j + L - 1].strength);
+    const phrase = edge(startStrength(i)) + edge(startStrength(j)) + edge(bounds[i + L - 1].strength) + edge(bounds[j + Lj - 1].strength);
     const exact = m.sim > 0.999 && m.t === 0 && m.steps === 0 ? 0.5 : 0;
     // irregular lengths (3, 5, 7 measures) are rarely phrases
-    const irregular = 1.5 * (LEN_COST[Math.min(L, 8)] ?? 1);
-    const recurs = ((support.get(`${i}|${L}`) ?? 1) + (support.get(`${j}|${L}`) ?? 1)) / 2;
+    const irregular = 0.75 * ((LEN_COST[Math.min(L, 8)] ?? 1) + (LEN_COST[Math.min(Lj, 8)] ?? 1));
+    const recurs = ((support.get(`${i}|${L}`) ?? 1) + (support.get(`${j}|${Lj}`) ?? 1)) / 2;
     const often = 0.4 * Math.min(4, recurs - 1);
-    p.value = L * m.sim * fit + 0.5 * phrase + exact - irregular + often;
+    p.value = ((L + Lj) / 2) * m.sim * fit + 0.5 * phrase + exact - irregular + often;
   }
   pairs.sort((a, b) => b.value - a.value);
 
@@ -414,9 +626,9 @@ function handRanges(score: Score, cache: FragmentCache, bounds: BoundaryInfo[], 
     for (let k = i; k < i + L; k++) owner[k] = i;
   };
   for (const p of pairs) {
-    if (freeOrSame(p.i, p.L) && freeOrSame(p.j, p.L)) {
+    if (freeOrSame(p.i, p.L) && freeOrSame(p.j, p.Lj)) {
       take(p.i, p.L);
-      take(p.j, p.L);
+      take(p.j, p.Lj);
     }
   }
 
@@ -481,8 +693,23 @@ function diffOf(base: WEvent[], other: WEvent[], m: WindowMatch, measures: numbe
   const baseUnmatched: number[] = [];
   // offset -1: the upbeat before the first barline
   const minOff = Math.min(0, ...base.map((e) => e.off), ...other.map((e) => e.off));
-  const perMeasure = Array.from({ length: measures - minOff }, (_, k) => ({ offset: k + minOff, changed: 0, missing: 0, rhythm: 0 }));
+  const perMeasure: BlockDiff['measures'] = Array.from({ length: measures - minOff }, (_, k) => ({
+    offset: k + minOff,
+    changed: 0,
+    missing: 0,
+    rhythm: 0,
+  }));
   const at = (off: number) => perMeasure[off - minOff];
+  // measures inserted or left out (alignMatch): the measure of this block each measure of the base corresponds to
+  const otherOf = new Map<number, number>();
+  if (m.map) {
+    m.map.forEach((baseOff, k) => {
+      if (k === 0) return;
+      if (at(k - 1)) at(k - 1).base = baseOff;
+      if (baseOff !== null) otherOf.set(baseOff, k - 1);
+    });
+  }
+  const dropped = new Map<number, number[]>((m.dropped ?? []).map((o) => [o, []]));
   other.forEach((e, k) => {
     if (!matchedOther.has(k)) {
       changed.push(e.id);
@@ -498,10 +725,17 @@ function diffOf(base: WEvent[], other: WEvent[], m: WindowMatch, measures: numbe
   base.forEach((e, k) => {
     if (!matchedBase.has(k)) {
       baseUnmatched.push(e.id);
-      if (at(e.off)) at(e.off).missing++;
+      const left = dropped.get(e.off);
+      if (left) left.push(e.id);
+      else {
+        const off = m.map && e.off >= 0 ? otherOf.get(e.off) : e.off;
+        if (off !== undefined && at(off)) at(off).missing++;
+      }
     }
   });
-  return { changed, rhythm, baseUnmatched, measures: perMeasure };
+  const diff: BlockDiff = { changed, rhythm, baseUnmatched, measures: perMeasure };
+  if (dropped.size) diff.dropped = [...dropped.entries()].map(([offset, notes]) => ({ offset, notes }));
+  return diff;
 }
 
 export interface PatternStructure {
@@ -533,10 +767,11 @@ function groupFragments(cache: FragmentCache, frags: HandRange[], threshold: num
     if (notes.length >= MIN_NOTES) {
       for (let f = 0; f < bases.length; f++) {
         const base = frags[bases[f]];
-        if (base.b - base.a + 1 !== L) continue;
-        const ev = cache.events(base.a, L);
+        const Lb = base.b - base.a + 1;
+        if (Lb !== L && Math.abs(Lb - L) > allowedIndels(Lb, L)) continue;
+        const ev = cache.events(base.a, Lb);
         if (ev.length < MIN_NOTES) continue;
-        const m = bestMatch(ev, notes, threshold, true);
+        const m = fragmentMatch(ev, Lb, notes, L, threshold, true);
         if (m.sim >= threshold && (!bestM || m.sim > bestM.sim)) {
           bestM = m;
           best = f;
@@ -558,14 +793,14 @@ function groupFragments(cache: FragmentCache, frags: HandRange[], threshold: num
  * resemble the base at the threshold, as it resembles the first one (the family was grouped around it), so the
  * families stay as they are. `events`: the appearances in order; returns the position of the base among them.
  */
-export function chooseBase(events: WEvent[][], threshold: number): number {
+export function chooseBase(events: WEvent[][], threshold: number, lengths: number[] = events.map(() => 1)): number {
   const n = events.length;
   if (n < 3) return 0; // two appearances differ from each other equally
   const cost = (i: number) => {
     let total = 0;
     for (let j = 0; j < n; j++) {
       if (j === i) continue;
-      const m = bestMatch(events[i], events[j], threshold, true);
+      const m = fragmentMatch(events[i], lengths[i], events[j], lengths[j], threshold, true);
       if (m.sim < threshold - 1e-9) return Infinity;
       total += ((1 - m.sim) * (events[i].length + events[j].length)) / 2;
     }
@@ -728,7 +963,7 @@ function analyzeHand(
       index: families.length,
       hand,
       letter: patternLetter(hand, i),
-      base: mine[ks[chooseBase(ks.map((k) => ev(mine[k])), threshold)]].index,
+      base: mine[ks[chooseBase(ks.map((k) => ev(mine[k])), threshold, ks.map((k) => coreLen(mine[k])))]].index,
       blocks: ks.map((k) => mine[k].index),
     };
     families.push(f);
@@ -746,7 +981,7 @@ function analyzeHand(
     const base = blocks[f.base];
     const notes = ev(b);
     // the same match as when the family was grouped, now with the chosen base
-    const bestM = bestMatch(ev(base), notes, threshold, true);
+    const bestM = fragmentMatch(ev(base), coreLen(base), notes, coreLen(b), threshold, true);
     b.similarity = bestM.sim;
     b.transpose = bestM.t;
     if (bestM.steps) b.steps = bestM.steps;
@@ -825,11 +1060,17 @@ export interface NotePair {
 
 /** The notes that correspond in two fragments of a hand, given the shift of `b` relative to `a`. */
 function correspondingNotes(cache: FragmentCache, a: Block, b: Block, shifted: boolean, exactOnly: boolean): NotePair[] {
-  const L = coreLen(a);
-  if (coreLen(b) !== L) return [];
-  const evA = cache.events(a.coreStart ?? a.startMeasure, L);
-  const evB = cache.events(b.coreStart ?? b.startMeasure, L);
-  const m = b.steps ? matchWindows(evA, evB, b.steps, true) : matchWindows(evA, evB, b.transpose);
+  const La = coreLen(a);
+  const Lb = coreLen(b);
+  const evA = cache.events(a.coreStart ?? a.startMeasure, La);
+  const evB = cache.events(b.coreStart ?? b.startMeasure, Lb);
+  const shift = { shift: b.steps || b.transpose, diatonic: !!b.steps };
+  const m =
+    La !== Lb
+      ? alignMatch(evA, La, evB, Lb, 0, shift)
+      : b.steps
+        ? matchWindows(evA, evB, b.steps, true)
+        : matchWindows(evA, evB, b.transpose);
   return m.pairs.filter(([, , q]) => !exactOnly || q === 1).map(([x, y]) => ({ from: evA[x].id, to: evB[y].id, shifted }));
 }
 
