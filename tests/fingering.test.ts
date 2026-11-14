@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeFingering } from '../web/src/lib/fingering';
+import { computeFingering, markFingerMoves } from '../web/src/lib/fingering';
 import { loadExample } from './helpers';
 
 type Ref = Record<number, string>; // measure index -> fingers (notes sorted by onset, then pitch); '?' = any
@@ -34,7 +34,7 @@ const REFS: [string, 'R' | 'L', Ref, number][] = [
   ['c-major-scale.musicxml', 'L', { 2: '54321321', 3: '2312345', 4: '54321321', 5: '2312345' }, 1],
   ['ode-to-joy.musicxml', 'R', {
     0: '3345', 1: '5432', 2: '1123', 3: '322', 4: '3345', 5: '5432', 6: '1123', 7: '211',
-    8: '2231', 9: '23431', 10: '23432', 12: '3345', 13: '5432', 14: '1123', 15: '211',
+    8: '2231', 9: '23431', 10: '23432', 11: '121', 12: '3345', 13: '5432', 14: '1123', 15: '211',
   }, 0.9],
   ['ode-to-joy.musicxml', 'L', { 0: '51', 1: '51', 2: '51', 3: '51', 4: '51', 5: '51', 6: '51' }, 0.9],
   ['minuet-in-g.musicxml', 'R', {
@@ -52,4 +52,20 @@ describe('fingering agreement with textbook fingerings', () => {
       expect(ratio).toBeGreaterThanOrEqual(min);
     });
   }
+});
+
+describe('no hand shift before it is needed', () => {
+  it('keeps bar 11 of Ode to Joy in the five-finger position and reaches the low G with the thumb', () => {
+    const score = loadExample('ode-to-joy.musicxml');
+    computeFingering(score.notes, { tempo: score.tempoMap[0].bpm });
+    markFingerMoves(score.notes);
+    const bar = (k: number) => score.notes.filter((n) => n.hand === 'R' && n.measureIndex === k - 1).sort((a, b) => a.onset - b.onset);
+    // D E F E D fits the hand: no finger moves to another key
+    expect(bar(11).map((n) => n.finger)).toEqual([2, 3, 4, 3, 2]);
+    expect(bar(11).some((n) => n.fingerMove)).toBe(false);
+    // C D and the low G: the thumb reaches down from the hand that stays on D
+    expect(bar(12).map((n) => n.finger)).toEqual([1, 2, 1]);
+    // and the next phrase starts in the same position again
+    expect(bar(13).some((n) => n.fingerMove)).toBe(false);
+  });
 });

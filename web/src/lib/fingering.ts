@@ -196,8 +196,11 @@ class CostModel {
       c += WEIGHTS.threeFourFive;
     }
     if (f1 === f3) {
+      // the same finger on another key two notes later: the hand moved. When an outer finger only reaches
+      // further out while the hand stays on the middle note, the size of the reach is already paid for as
+      // the span of the second and third notes: it counts as a half change of position, not by distance
       const d = Math.abs(m3 - m1);
-      if (d > 0) c += WEIGHTS.positionChangeHalf + 0.5 * d;
+      if (d > 0) c += WEIGHTS.positionChangeHalf + (this.outerReach(m1, m2, f2, m3, f3) ? 0 : 0.5 * d);
       return c;
     }
     const [fa, fb, d] = this.orient(m1, f1, m3, f3);
@@ -209,6 +212,24 @@ class CostModel {
       c += WEIGHTS.positionChangeSize * (d > maxC ? d - maxC : minC - d);
     }
     return c;
+  }
+
+  /**
+   * The thumb or the fifth finger goes from m1 further out of the hand to m3 (the right thumb down, the
+   * right fifth up; the other way round in the left hand) while finger f2 stays on m2: the hand is in
+   * place on the first two notes (no finger passed over or under) and reaches the third within a
+   * comfortable span — an extension rather than a move of the whole hand. No other finger could take m3
+   * without moving the hand, so preparing for it earlier (another finger order in a passage that fits
+   * the hand) is no better.
+   */
+  outerReach(m1: number, m2: number, f2: number, m3: number, f3: number): boolean {
+    if (f2 === f3) return false;
+    const thumbSide = this.hand === 'R' ? m3 < m1 : m3 > m1;
+    if (!((f3 === 1 && thumbSide) || (f3 === 5 && !thumbSide))) return false;
+    const [, , d12] = this.orient(m1, f3, m2, f2);
+    if (d12 <= 0) return false;
+    const [fa, fb, d] = this.orient(m2, f2, m3, f3);
+    return d > 0 && d <= this.span(fa, fb)[4];
   }
 
   /** Implied position of the thumb (white-key units) for a note played with finger f. */
